@@ -123,9 +123,16 @@
                     @sort-change="search"
                     @search="search"
                     :data="data"
+                    :view-mode="isMobile ? 'card' : 'table'"
                     :heightDiff="320"
                 >
-                    <el-table-column :label="$t('commons.table.name')" prop="name" sortable min-width="90">
+                    <el-table-column
+                        :label="$t('commons.table.name')"
+                        prop="name"
+                        sortable
+                        min-width="90"
+                        card-type="name"
+                    >
                         <template #default="{ row }">
                             <Tooltip v-if="!row.isDelete" :islink="false" :text="row.name" />
                             <div v-else>
@@ -137,7 +144,7 @@
                             </div>
                         </template>
                     </el-table-column>
-                    <el-table-column :label="$t('database.authorizedUsers')" min-width="130">
+                    <el-table-column :label="$t('database.authorizedUsers')" min-width="130" card-type="content">
                         <template #default="{ row }">
                             <el-button
                                 link
@@ -149,7 +156,12 @@
                             </el-button>
                         </template>
                     </el-table-column>
-                    <el-table-column :label="$t('commons.table.description')" prop="description" show-overflow-tooltip>
+                    <el-table-column
+                        :label="$t('commons.table.description')"
+                        prop="description"
+                        show-overflow-tooltip
+                        card-type="content-full"
+                    >
                         <template #default="{ row }">
                             <fu-input-rw-switch
                                 v-model="row.description"
@@ -164,6 +176,7 @@
                         :label="$t('commons.table.date')"
                         :formatter="dateFormat"
                         show-overflow-tooltip
+                        card-type="content"
                     />
                     <fu-table-operations
                         :ellipsis="isMobile ? 0 : 10"

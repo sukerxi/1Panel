@@ -30,6 +30,7 @@
                     v-model:selects="selects"
                     :data="data"
                     @search="search"
+                    :view-mode="isMobile ? 'card' : 'table'"
                     :heightDiff="300"
                 >
                     <el-table-column type="selection" :selectable="selectable" fix />
@@ -39,6 +40,7 @@
                         prop="name"
                         fix
                         show-overflow-tooltip
+                        card-type="name"
                     >
                         <template #default="{ row }">
                             <el-text type="primary" class="cursor-pointer" @click="onInspect(row.id)">
@@ -46,7 +48,7 @@
                             </el-text>
                         </template>
                     </el-table-column>
-                    <el-table-column width="90">
+                    <el-table-column width="90" card-type="status">
                         <template #default="{ row }">
                             <el-tag round v-if="row.isSystem || row.name === '1panel-network'">system</el-tag>
                         </template>
@@ -56,10 +58,23 @@
                         show-overflow-tooltip
                         min-width="60"
                         prop="driver"
+                        card-type="content"
                     />
-                    <el-table-column :label="$t('container.subnet')" min-width="80" prop="subnet" fix />
-                    <el-table-column :label="$t('container.gateway')" min-width="80" prop="gateway" fix />
-                    <el-table-column :label="$t('container.tag')" min-width="140" fix>
+                    <el-table-column
+                        :label="$t('container.subnet')"
+                        min-width="80"
+                        prop="subnet"
+                        fix
+                        card-type="content"
+                    />
+                    <el-table-column
+                        :label="$t('container.gateway')"
+                        min-width="80"
+                        prop="gateway"
+                        fix
+                        card-type="content"
+                    />
+                    <el-table-column :label="$t('container.tag')" min-width="140" fix card-type="content-full">
                         <template #default="{ row }">
                             <div v-for="(item, index) in row.labels" :key="index">
                                 <div v-if="row.expand || (!row.expand && index < 3)">
@@ -79,6 +94,7 @@
                         min-width="90"
                         :label="$t('commons.table.date')"
                         :formatter="dateFormat"
+                        card-type="content"
                     />
                     <fu-table-operations width="100" :buttons="buttons" :label="$t('commons.table.operate')" fix />
                 </ComplexTable>
@@ -104,6 +120,9 @@ import TaskLog from '@/components/log/task/index.vue';
 import i18n from '@/lang';
 import { ElMessageBox } from 'element-plus';
 import DockerStatus from '@/views/container/docker-status/index.vue';
+import { useGlobalStore } from '@/composables/useGlobalStore';
+
+const { isMobile } = useGlobalStore();
 
 const loading = ref();
 const detailDrawerRef = ref();

@@ -16,6 +16,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import { Grid, List } from '@element-plus/icons-vue';
+import { useGlobalStore } from '@/composables/useGlobalStore';
 
 defineOptions({ name: 'TableViewSwitch' });
 
@@ -33,6 +34,8 @@ const props = defineProps({
 });
 const emit = defineEmits(['update:modelValue']);
 
+const { isMobile } = useGlobalStore();
+
 const getStorageKey = () => `COMPLEX-T-V-${props.storageKey}`;
 const getStoredViewMode = (): ViewMode | undefined => {
     if (typeof window === 'undefined') {
@@ -41,7 +44,9 @@ const getStoredViewMode = (): ViewMode | undefined => {
     const mode = localStorage.getItem(getStorageKey());
     return mode === 'card' || mode === 'table' ? mode : undefined;
 };
-const currentViewMode = ref<ViewMode>(getStoredViewMode() || props.modelValue);
+const currentViewMode = ref<ViewMode>(
+    getStoredViewMode() || (isMobile.value ? 'card' : props.modelValue),
+);
 
 watch(
     () => props.modelValue,

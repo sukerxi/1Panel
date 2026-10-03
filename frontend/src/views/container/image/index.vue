@@ -38,9 +38,10 @@
                     @sort-change="search"
                     :columns="columns"
                     @search="search"
+                    :view-mode="isMobile ? 'card' : 'table'"
                     :heightDiff="300"
                 >
-                    <el-table-column label="ID" prop="id" width="180">
+                    <el-table-column label="ID" prop="id" width="180" card-type="name">
                         <template #default="{ row }">
                             <el-text type="primary" class="cursor-pointer" @click="onInspect(row.id)">
                                 {{ row.id.replaceAll('sha256:', '').substring(0, 12) }}
@@ -64,7 +65,13 @@
                             </div>
                         </template>
                     </el-table-column>
-                    <el-table-column :label="$t('commons.table.status')" prop="isUsed" width="100" sortable="custom">
+                    <el-table-column
+                        :label="$t('commons.table.status')"
+                        prop="isUsed"
+                        width="100"
+                        sortable="custom"
+                        card-type="status"
+                    >
                         <template #default="{ row }">
                             <Status :status="row.isUsed ? 'used' : 'unused'" />
                         </template>
@@ -76,6 +83,7 @@
                         min-width="160"
                         :width="isMobile ? 400 : 'auto'"
                         fix
+                        card-type="content-full"
                     >
                         <template #default="{ row }">
                             <el-tag
@@ -89,7 +97,14 @@
                             </el-tag>
                         </template>
                     </el-table-column>
-                    <el-table-column :label="$t('container.size')" prop="size" min-width="60" fix sortable="custom">
+                    <el-table-column
+                        :label="$t('container.size')"
+                        prop="size"
+                        min-width="60"
+                        fix
+                        sortable="custom"
+                        card-type="content"
+                    >
                         <template #default="{ row }">
                             {{ computeSize2(row.size) }}
                         </template>
@@ -100,6 +115,7 @@
                         min-width="80"
                         :label="$t('commons.table.date')"
                         :formatter="dateFormat"
+                        card-type="content"
                     />
                     <fu-table-operations
                         width="250px"

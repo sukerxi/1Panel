@@ -139,7 +139,14 @@
                         />
                     </div>
                     <div class="min-w-0 flex-1 sm:hidden block">
-                        <div class="address-bar">
+                        <div
+                            v-show="!searchableStatus"
+                            @click="
+                                searchableStatus = true;
+                                focusSearchableInput(`${item.id}-mobile`)
+                            "
+                            class="address-bar"
+                        >
                             <div class="flex items-center address-url">
                                 <span class="breadcrumb-root">
                                     <el-link @click.stop="jump('/')">
@@ -203,6 +210,17 @@
                                 </span>
                             </div>
                         </div>
+                        <el-input
+                            :ref="(el) => setSearchableInputRef(`${item.id}-mobile`, el)"
+                            v-show="searchableStatus"
+                            v-model="searchablePath"
+                            @blur="searchableInputBlur"
+                            class="address-input"
+                            @keyup.enter="
+                                jump(searchablePath);
+                                searchableStatus = false;
+                            "
+                        />
                     </div>
                     <div class="flex w-full flex-wrap items-center justify-start gap-2 xl:w-auto xl:flex-nowrap">
                         <div class="file-search-input-shell w-full min-w-0">
@@ -282,7 +300,7 @@
                                     </el-dropdown-menu>
                                 </template>
                             </el-dropdown>
-                            <el-button-group class="file-utility-group">
+                            <el-button-group v-if="!isMobile" class="file-utility-group">
                                 <el-button class="btn" @click="openRecycleBin">
                                     {{ $t('file.recycleBin') }}
                                 </el-button>
@@ -398,11 +416,52 @@
                                 </template>
                             </el-button-group>
 
-                            <el-badge :value="processCount" class="btn" v-if="processCount > 0">
+                            <el-badge :value="processCount" class="btn" v-if="processCount > 0 && !isMobile">
                                 <el-button class="btn" @click="openProcess">
                                     {{ $t('file.wgetTask') }}
                                 </el-button>
                             </el-badge>
+                            <el-dropdown v-if="isMobile" trigger="click" @command="handleMobileToolCommand">
+                                <el-button>
+                                    {{ $t('tabs.more') }}
+                                    <el-icon><arrow-down /></el-icon>
+                                </el-button>
+                                <template #dropdown>
+                                    <el-dropdown-menu>
+                                        <el-dropdown-item command="recycle">
+                                            {{ $t('file.recycleBin') }}
+                                        </el-dropdown-item>
+                                        <el-dropdown-item command="terminal" :disabled="!isAdminOrNodeAdmin">
+                                            {{ $t('menu.terminal') }}
+                                        </el-dropdown-item>
+                                        <el-dropdown-item command="favorite">
+                                            {{ $t('file.favorite') }}
+                                        </el-dropdown-item>
+                                        <el-dropdown-item command="shareList">
+                                            {{ $t('file.shareList') }}
+                                        </el-dropdown-item>
+                                        <el-dropdown-item command="history">
+                                            {{ $t('file.history') }}
+                                        </el-dropdown-item>
+                                        <el-dropdown-item command="calculate" :disabled="disableBtn">
+                                            {{ $t('file.calculate') }}
+                                        </el-dropdown-item>
+                                        <el-dropdown-item
+                                            v-for="(mount, mIndex) in hostMount"
+                                            :key="mount.path"
+                                            :command="`mount:${mIndex}`"
+                                        >
+                                            {{ mount.path }} ({{
+                                                mIndex === 0 ? $t('file.root') : $t('home.mount')
+                                            }})
+                                            {{ formatFileSize(mount.free) }}
+                                        </el-dropdown-item>
+                                        <el-dropdown-item command="process" v-if="processCount > 0">
+                                            {{ $t('file.wgetTask') }} ({{ processCount }})
+                                        </el-dropdown-item>
+                                    </el-dropdown-menu>
+                                </template>
+                            </el-dropdown>
                         </div>
                     </template>
                     <template #rightToolBar>
@@ -510,6 +569,7 @@
                             v-model:selects="selects"
                             :ref="(el) => setTableRef(item.id, el)"
                             :data="data"
+                            :view-mode="isMobile ? 'card' : 'table'"
                             @search="search"
                             @sort-change="changeSort"
                             @cell-mouse-enter="showFavorite"
@@ -527,11 +587,12 @@
                                 show-overflow-tooltip
                                 :sortable="'custom'"
                                 prop="name"
+                                card-type="name"
                                 :tooltip-options="{
                                     placement: 'bottom-start',
                                 }"
                             >
-                                <template #default="{ row }">
+                                <template #default="{ row, viewMode }">
                                     <div class="file-row">
                                         <div class="file-row__icon">
                                             <svg-icon
@@ -593,7 +654,7 @@
                                             ></el-button>
                                             <div v-else>
                                                 <el-button
-                                                    v-if="hoveredRowPath === row.path"
+                                                    v-if="hoveredRowPath === row.path || viewMode === 'card'"
                                                     v-permission
                                                     v-node-admin
                                                     link
@@ -605,7 +666,12 @@
                                     </div>
                                 </template>
                             </el-table-column>
-                            <el-table-column :label="$t('file.mode')" prop="mode" width="80">
+                            <el-table-column
+                                :label="$t('file.mode')"
+                                prop="mode"
+                                width="80"
+                                card-type="content"
+                            >
                                 <template #default="{ row }">
                                     <el-link v-permission v-node-admin underline="never" @click="openMode(row)">
                                         {{ row.mode }}
@@ -617,6 +683,7 @@
                                 prop="user"
                                 show-overflow-tooltip
                                 width="200"
+                                card-type="description"
                             >
                                 <template #default="{ row }">
                                     <el-link v-permission v-node-admin underline="never" @click="openChown(row)">
@@ -625,7 +692,13 @@
                                     </el-link>
                                 </template>
                             </el-table-column>
-                            <el-table-column :label="$t('file.size')" prop="size" width="120" :sortable="'custom'">
+                            <el-table-column
+                                :label="$t('file.size')"
+                                prop="size"
+                                width="120"
+                                :sortable="'custom'"
+                                card-type="content"
+                            >
                                 <template #default="{ row }">
                                     <el-button
                                         type="primary"
@@ -652,12 +725,19 @@
                                 width="180"
                                 show-overflow-tooltip
                                 :sortable="'custom'"
+                                card-type="content"
                             >
                                 <template #default="{ row }">
                                     {{ row.modTime ? dateFormatSimpleWithSecond(row.modTime) : '-' }}
                                 </template>
                             </el-table-column>
-                            <el-table-column :label="$t('file.remark')" prop="remark" width="180" show-overflow-tooltip>
+                            <el-table-column
+                                :label="$t('file.remark')"
+                                prop="remark"
+                                width="180"
+                                show-overflow-tooltip
+                                card-type="description"
+                            >
                                 <template #default="{ row }">
                                     <span>{{ row.remark ? row.remark : '-' }}</span>
                                 </template>
@@ -979,7 +1059,8 @@ const setPathRef = (key: string, el: any) => {
 };
 const getCurrentPath = () => pathRefs.value[editableTabsKey.value];
 
-const { searchableStatus, searchablePath, setSearchableInputRef, searchableInputBlur } = useMultipleSearchable(paths);
+const { searchableStatus, searchablePath, setSearchableInputRef, searchableInputBlur, focusSearchableInput } =
+    useMultipleSearchable(paths);
 
 const paginationConfig = reactive({
     cacheSizeKey: 'file-page-size',
@@ -1033,6 +1114,12 @@ const toolbarGap = 8;
 
 const updateButtons = async () => {
     await nextTick();
+    if (isMobile.value) {
+        isRightToolbarWrapped.value = true;
+        visibleButtons.value = [];
+        moreButtons.value = [...toolButtons.value];
+        return;
+    }
     const wrapper = getCurrentBtnWrapper();
     if (!wrapper) {
         return;
@@ -2036,6 +2123,30 @@ const toTerminal = () => {
     dialogTerminalRef.value!.acceptParams({ cwd: req.path, command: '/bin/sh' });
 };
 
+const handleMobileToolCommand = (command: string) => {
+    if (command === 'recycle') {
+        openRecycleBin();
+    } else if (command === 'terminal') {
+        toTerminal();
+    } else if (command === 'favorite') {
+        openFavorite();
+    } else if (command === 'shareList') {
+        openShareList();
+    } else if (command === 'history') {
+        openFileHistoryCenter();
+    } else if (command === 'calculate') {
+        calculateSize(req.path);
+    } else if (command === 'process') {
+        openProcess();
+    } else if (command.startsWith('mount:')) {
+        const index = Number(command.replace('mount:', ''));
+        const mount = hostMount.value[index];
+        if (mount) {
+            jump(mount.path);
+        }
+    }
+};
+
 const openWithVSCode = (row: File.File) => {
     dialogVscodeOpenRef.value.acceptParams({ path: row.path + (row.isDir ? '' : ':1:1') });
 };
@@ -2912,46 +3023,101 @@ onBeforeUnmount(() => {
     }
 }
 
-@media (max-width: 768px) {
+@media (max-width: 767px) {
     .file-navigation {
         align-items: stretch;
         flex-direction: column;
         gap: 8px;
     }
 
-    .file-navigation__actions,
-    .file-search-actions,
-    .file-batch-actions,
-    .copy-button {
+    .file-navigation__actions {
         width: 100%;
+        gap: 8px;
     }
 
-    .file-right-toolbar {
-        align-items: stretch;
-        justify-content: stretch;
+    :deep(.file-navigation__actions .el-button.is-circle) {
+        width: 38px;
+        height: 38px;
     }
 
-    .file-search-actions {
-        flex-wrap: wrap;
-        justify-content: stretch;
-    }
-
-    .file-batch-group {
-        flex-wrap: wrap;
-    }
-
-    .file-search-input,
-    .file-ai-button {
-        width: 100%;
-        min-width: 0;
+    .address-bar {
+        min-height: 38px;
     }
 
     .file-search-input-shell {
+        flex-basis: 100%;
         max-width: none;
     }
 
-    .file-batch-actions {
+    :deep(.file-tabs .el-tabs__header) {
+        margin-bottom: 6px;
+    }
+
+    :deep(.file-tabs .el-tabs__item) {
+        height: 36px;
+        padding: 0 10px;
+        font-size: 13px;
+        line-height: 36px;
+    }
+
+    // 移动端卡片视图：单列、紧凑的列表式卡片
+    :deep(.complex-table.file-table .complex-table__card-grid) {
+        grid-template-columns: 1fr;
+        gap: 8px;
+    }
+
+    :deep(.complex-table.file-table .complex-table__card) {
+        --el-card-padding: 10px 12px;
+        border-radius: 8px;
+    }
+
+    :deep(.complex-table.file-table .complex-table__card .el-card__body) {
+        min-height: 0;
+        padding: 10px 12px;
+    }
+
+    :deep(.complex-table.file-table .complex-table__card-header) {
+        gap: 8px;
+    }
+
+    :deep(.complex-table.file-table .complex-table__card-name) {
+        font-size: 14px;
+        line-height: 20px;
+    }
+
+    :deep(.complex-table.file-table .complex-table__card-selection) {
+        padding: 8px;
+        margin: -8px 2px -8px -8px;
+    }
+
+    :deep(.complex-table.file-table .complex-table__card-content) {
+        grid-template-columns: 1fr 1fr;
+        gap: 6px;
+        margin-top: 8px;
+    }
+
+    :deep(.complex-table.file-table .complex-table__card-item) {
+        padding: 6px 8px;
+    }
+
+    :deep(.complex-table.file-table .complex-table__card-label) {
+        margin-bottom: 2px;
+        font-size: 11px;
+    }
+
+    :deep(.complex-table.file-table .complex-table__card-value) {
+        font-size: 12px;
+    }
+
+    :deep(.complex-table.file-table .complex-table__card-description) {
+        gap: 4px;
+        margin: 8px 0 0;
+    }
+
+    :deep(.complex-table.file-table .complex-table__card-buttons) {
+        gap: 4px 12px;
         justify-content: flex-start;
+        padding-top: 8px;
     }
 }
 </style>

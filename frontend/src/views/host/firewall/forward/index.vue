@@ -61,16 +61,27 @@
                             v-model:selects="selects"
                             @search="search"
                             :data="data"
+                            :view-mode="isMobile ? 'card' : 'table'"
                             :heightDiff="320"
                         >
                             <el-table-column type="selection" fix />
-                            <el-table-column label="IP" :min-width="60" prop="family">
+                            <el-table-column label="IP" :min-width="60" prop="family" card-type="content">
                                 <template #default="{ row }">
                                     {{ row.family === 'ipv6' ? 'IPv6' : 'IPv4' }}
                                 </template>
                             </el-table-column>
-                            <el-table-column :label="$t('commons.table.protocol')" :min-width="70" prop="protocol" />
-                            <el-table-column :label="$t('commons.table.status')" :min-width="90" prop="syncStatus">
+                            <el-table-column
+                                :label="$t('commons.table.protocol')"
+                                :min-width="70"
+                                prop="protocol"
+                                card-type="content"
+                            />
+                            <el-table-column
+                                :label="$t('commons.table.status')"
+                                :min-width="90"
+                                prop="syncStatus"
+                                card-type="status"
+                            >
                                 <template #default="{ row }">
                                     <el-tooltip
                                         :disabled="!syncStatusMessage(row.syncStatus)"
@@ -83,14 +94,30 @@
                                     </el-tooltip>
                                 </template>
                             </el-table-column>
-                            <el-table-column :label="$t('firewall.sourcePort')" :min-width="70" prop="port" />
-                            <el-table-column :min-width="80" :label="$t('firewall.targetIP')" prop="targetIP" />
-                            <el-table-column :label="$t('firewall.targetPort')" :min-width="70" prop="targetPort" />
+                            <el-table-column
+                                :label="$t('firewall.sourcePort')"
+                                :min-width="70"
+                                prop="port"
+                                card-type="name"
+                            />
+                            <el-table-column
+                                :min-width="80"
+                                :label="$t('firewall.targetIP')"
+                                prop="targetIP"
+                                card-type="description"
+                            />
+                            <el-table-column
+                                :label="$t('firewall.targetPort')"
+                                :min-width="70"
+                                prop="targetPort"
+                                card-type="content"
+                            />
                             <template v-if="fireName === 'iptables' || fireName === 'nftables'">
                                 <el-table-column
                                     :label="$t('firewall.forwardInboundInterface')"
                                     :min-width="70"
                                     prop="interface"
+                                    card-type="content"
                                 >
                                     <template #default="{ row }">
                                         <span>
@@ -150,6 +177,9 @@ import { isAxiosError } from 'axios';
 import { downloadWithContent } from '@/utils/file';
 import { getCurrentDateFormatted } from '@/utils/date';
 import { ElMessageBox } from 'element-plus';
+import { useGlobalStore } from '@/composables/useGlobalStore';
+
+const { isMobile } = useGlobalStore();
 const loading = ref();
 const selects = ref<any>([]);
 const searchName = ref();

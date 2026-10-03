@@ -24,18 +24,32 @@
                     v-model:selects="selects"
                     :data="data"
                     @search="search"
+                    :view-mode="isMobile ? 'card' : 'table'"
                     :heightDiff="300"
                 >
-                    <el-table-column :label="$t('commons.table.name')" prop="name" min-width="60" />
+                    <el-table-column :label="$t('commons.table.name')" prop="name" min-width="60" card-type="name" />
                     <el-table-column
                         :label="$t('container.downloadUrl')"
                         show-overflow-tooltip
                         prop="downloadUrl"
                         min-width="100"
                         fix
+                        card-type="description"
                     />
-                    <el-table-column :label="$t('commons.table.protocol')" prop="protocol" min-width="60" fix />
-                    <el-table-column :label="$t('commons.table.status')" prop="status" min-width="60" fix>
+                    <el-table-column
+                        :label="$t('commons.table.protocol')"
+                        prop="protocol"
+                        min-width="60"
+                        fix
+                        card-type="content"
+                    />
+                    <el-table-column
+                        :label="$t('commons.table.status')"
+                        prop="status"
+                        min-width="60"
+                        fix
+                        card-type="status"
+                    >
                         <template #default="{ row }">
                             <Status :status="row.status" :msg="row.message" />
                         </template>
@@ -46,6 +60,7 @@
                         min-width="80"
                         fix
                         :formatter="dateFormat"
+                        card-type="content"
                     />
                     <fu-table-operations width="200px" :buttons="buttons" :label="$t('commons.table.operate')" />
                 </ComplexTable>
@@ -66,6 +81,9 @@ import { Container } from '@/api/interface/container';
 import { checkRepoStatus, deleteImageRepo, searchImageRepo } from '@/api/modules/container';
 import DockerStatus from '@/views/container/docker-status/index.vue';
 import i18n from '@/lang';
+import { useGlobalStore } from '@/composables/useGlobalStore';
+
+const { isMobile } = useGlobalStore();
 
 const loading = ref();
 const data = ref();

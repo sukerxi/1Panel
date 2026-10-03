@@ -98,7 +98,9 @@
                                 :key="getColumnKey(descriptionColumn)"
                                 class="complex-table__card-description-item"
                             >
-                                <span>{{ getColumnLabel(descriptionColumn) }}</span>
+                                <span v-if="getColumnLabel(descriptionColumn)">{{
+                                    getColumnLabel(descriptionColumn)
+                                }}</span>
                                 <strong>
                                     <CardColumnValue :column="descriptionColumn" :row="cardRow" :index="cardIndex" />
                                 </strong>
@@ -221,7 +223,7 @@ const leftSelect = ref(false);
 const cardContentMinHeight = ref(0);
 let cardContentHeightFrame: number | undefined;
 
-const currentViewMode = ref<ViewMode>(props.viewMode || 'table');
+const currentViewMode = ref<ViewMode>(props.viewMode || (isMobile.value ? 'card' : 'table'));
 watch(
     () => props.viewMode,
     (mode) => {
@@ -230,6 +232,12 @@ watch(
         }
     },
 );
+// 页面未显式绑定 view-mode 时，跟随移动端断点自动切换
+watch(isMobile, (mobile) => {
+    if (!props.viewMode) {
+        currentViewMode.value = mobile ? 'card' : 'table';
+    }
+});
 const columnNodes = computed(() => flattenVNodes(slots.default?.() || []));
 const { CardColumnValue, cardColumns, getColumnKey, getColumnLabel } = useCardColumns(
     () => columnNodes.value,

@@ -110,9 +110,16 @@
                     @sort-change="search"
                     @search="search"
                     :data="tableRows"
+                    :view-mode="isMobile ? 'card' : 'table'"
                     :heightDiff="320"
                 >
-                    <el-table-column :label="$t('commons.table.name')" prop="name" min-width="180" sortable>
+                    <el-table-column
+                        :label="$t('commons.table.name')"
+                        prop="name"
+                        min-width="180"
+                        sortable
+                        card-type="name"
+                    >
                         <template #default="{ row }">
                             <Tooltip v-if="!row.isDelete" :islink="false" :text="row.name" />
                             <div v-else>
@@ -128,6 +135,7 @@
                         prop="username"
                         min-width="180"
                         show-overflow-tooltip
+                        card-type="content"
                     >
                         <template #default="{ row }">
                             <div class="flex items-center" v-if="row.username">
@@ -148,7 +156,12 @@
                             </div>
                         </template>
                     </el-table-column>
-                    <el-table-column :label="$t('commons.login.password')" prop="password" min-width="180">
+                    <el-table-column
+                        :label="$t('commons.login.password')"
+                        prop="password"
+                        min-width="180"
+                        card-type="content"
+                    >
                         <template #default="{ row }">
                             <span v-if="row.username === ''">-</span>
                             <div v-else-if="row.password" class="flex items-center flex-wrap">
@@ -196,6 +209,7 @@
                         prop="description"
                         min-width="220"
                         show-overflow-tooltip
+                        card-type="content-full"
                     >
                         <template #default="{ row }">
                             <fu-input-rw-switch
@@ -212,6 +226,7 @@
                         min-width="200"
                         sortable
                         :formatter="dateFormat"
+                        card-type="content"
                     />
                     <fu-table-operations
                         :ellipsis="isMobile ? 0 : 10"

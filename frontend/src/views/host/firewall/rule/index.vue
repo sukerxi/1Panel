@@ -190,10 +190,11 @@
                                 :data="allRows"
                                 :heightDiff="320 + noticeHeight"
                                 row-key="rowKey"
+                                :view-mode="isMobile ? 'card' : 'table'"
                                 @search="searchPage"
                             >
                                 <el-table-column type="selection" :selectable="isDeletableRule" width="48" fix />
-                                <el-table-column :label="$t('firewall.action')" width="76">
+                                <el-table-column :label="$t('firewall.action')" width="76" card-type="status">
                                     <template #default="{ row }">
                                         <span
                                             class="firewall-action"
@@ -213,12 +214,16 @@
                                         </span>
                                     </template>
                                 </el-table-column>
-                                <el-table-column :label="$t('firewall.priority')" width="90">
+                                <el-table-column :label="$t('firewall.priority')" width="90" card-type="content">
                                     <template #default="{ row }">
                                         {{ displayRulePriority(row) }}
                                     </template>
                                 </el-table-column>
-                                <el-table-column :label="$t('commons.table.status')" width="64">
+                                <el-table-column
+                                    :label="$t('commons.table.status')"
+                                    width="64"
+                                    card-type="content"
+                                >
                                     <template #default="{ row }">
                                         <el-tooltip :content="ruleStateTooltip(row)" placement="top" :show-after="200">
                                             <span
@@ -260,12 +265,16 @@
                                         </el-tooltip>
                                     </template>
                                 </el-table-column>
-                                <el-table-column :label="$t('commons.table.protocol')" width="110">
+                                <el-table-column
+                                    :label="$t('commons.table.protocol')"
+                                    width="110"
+                                    card-type="content"
+                                >
                                     <template #default="{ row }">
                                         {{ displayProtocol(row) }}
                                     </template>
                                 </el-table-column>
-                                <el-table-column label="IP" min-width="240" show-overflow-tooltip>
+                                <el-table-column label="IP" min-width="240" show-overflow-tooltip card-type="description">
                                     <template #default="{ row }">
                                         <span>
                                             {{ displayAddress(row) }}
@@ -276,6 +285,7 @@
                                     :label="$t('commons.table.port')"
                                     min-width="180"
                                     show-overflow-tooltip
+                                    card-type="name"
                                 >
                                     <template #default="{ row }">
                                         <span>
@@ -283,7 +293,7 @@
                                         </span>
                                     </template>
                                 </el-table-column>
-                                <el-table-column :label="$t('firewall.used')" min-width="200">
+                                <el-table-column :label="$t('firewall.used')" min-width="200" card-type="description">
                                     <template #default="{ row }">
                                         <span v-if="isReadOnlyNativeRule(row)">-</span>
                                         <el-icon v-else-if="usageLoading" class="is-loading"><Loading /></el-icon>
@@ -368,6 +378,7 @@
                                     min-width="160"
                                     prop="rule.description"
                                     show-overflow-tooltip
+                                    card-type="description"
                                 />
                                 <fu-table-operations
                                     width="160px"
@@ -429,6 +440,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import { useElementSize } from '@vueuse/core';
 import { ElMessageBox } from 'element-plus';
 import { Expand, Filter, Loading, Lock, WarningFilled } from '@element-plus/icons-vue';
+import { useGlobalStore } from '@/composables/useGlobalStore';
 
 interface RuleRow extends Firewall.InventoryItem {
     rowKey: string;
@@ -492,6 +504,7 @@ const processDetailRef = ref<InstanceType<typeof ProcessDetail>>();
 const resetConfirmRef = ref<InstanceType<typeof ConfirmDialog>>();
 const dockerRestartRef = ref<InstanceType<typeof DockerRestart>>();
 const withDockerRestart = ref(false);
+const { isMobile } = useGlobalStore();
 const loading = ref(false);
 const resetting = ref(false);
 const syncOpening = ref(false);

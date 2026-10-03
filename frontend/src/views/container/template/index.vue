@@ -42,6 +42,7 @@
                     v-model:selects="selects"
                     :data="data"
                     @search="search"
+                    :view-mode="isMobile ? 'card' : 'table'"
                     :heightDiff="300"
                 >
                     <el-table-column type="selection" fix />
@@ -52,6 +53,7 @@
                         sortable
                         fix
                         show-overflow-tooltip
+                        card-type="name"
                     >
                         <template #default="{ row }">
                             <el-text type="primary" class="cursor-pointer" @click="onOpenDetail(row)">
@@ -59,8 +61,14 @@
                             </el-text>
                         </template>
                     </el-table-column>
-                    <el-table-column :label="$t('commons.table.description')" prop="description" min-width="200" fix />
-                    <el-table-column :label="$t('commons.table.createdAt')" min-width="80" fix>
+                    <el-table-column
+                        :label="$t('commons.table.description')"
+                        prop="description"
+                        min-width="200"
+                        fix
+                        card-type="description"
+                    />
+                    <el-table-column :label="$t('commons.table.createdAt')" min-width="80" fix card-type="content">
                         <template #default="{ row }">
                             {{ dateFormat(0, 0, row.createdAt) }}
                         </template>
@@ -89,6 +97,9 @@ import OperatorDialog from '@/views/container/template/operator/index.vue';
 import { deleteComposeTemplate, searchComposeTemplate } from '@/api/modules/container';
 import DockerStatus from '@/views/container/docker-status/index.vue';
 import i18n from '@/lang';
+import { useGlobalStore } from '@/composables/useGlobalStore';
+
+const { isMobile } = useGlobalStore();
 
 const loading = ref();
 const data = ref();

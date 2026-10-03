@@ -148,4 +148,53 @@
             overflow-x: auto;
         }
     }
+
+    // 首页状态卡片弹层在窄屏下不超出屏幕
+    .dashboard-status-popover {
+        max-width: calc(100vw - 24px) !important;
+    }
+
+    // 列表页卡片视图：卡片间距更紧凑
+    .complex-table__card-grid {
+        gap: 8px;
+    }
+
+    // 卡片内容随信息多少自适应高度，避免小列表产生大量空白
+    .complex-table__card {
+        --el-card-padding: 12px !important;
+    }
+
+    .complex-table__card .el-card__body {
+        min-height: 0 !important;
+        padding: 12px !important;
+    }
+
+    .complex-table__card-content {
+        margin-top: 10px;
+        gap: 6px;
+    }
+
+    .complex-table__card-item {
+        padding: 6px 8px;
+    }
+
+    .complex-table__card-description {
+        gap: 6px;
+        margin: 10px 0;
+    }
+
+    // 工具条按钮触控间距
+    .content-container__title {
+        row-gap: 8px;
+    }
+
+    // 表单页操作区在窄屏下占满宽度，避免按钮挤压
+    .content-container_form {
+        width: 100% !important;
+        margin-left: 0 !important;
+
+        .form-button {
+            float: none;
+        }
+    }
 }

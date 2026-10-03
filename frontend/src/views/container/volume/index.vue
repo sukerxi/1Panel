@@ -30,6 +30,7 @@
                     v-model:selects="selects"
                     :data="data"
                     @search="search"
+                    :view-mode="isMobile ? 'card' : 'table'"
                     :heightDiff="300"
                 >
                     <el-table-column type="selection" fix />
@@ -40,6 +41,7 @@
                         prop="name"
                         fix
                         show-overflow-tooltip
+                        card-type="name"
                     >
                         <template #default="{ row }">
                             <el-text type="primary" class="cursor-pointer" @click="onInspect(row.name)">
@@ -47,7 +49,7 @@
                             </el-text>
                         </template>
                     </el-table-column>
-                    <el-table-column label="Options" min-width="160">
+                    <el-table-column label="Options" min-width="160" card-type="content-full">
                         <template #default="{ row }">
                             <div v-for="(item, index) in row.options" :key="index">
                                 <div v-if="row.expand || (!row.expand && index < 3)">
@@ -83,6 +85,7 @@
                         show-overflow-tooltip
                         min-width="120"
                         prop="mountpoint"
+                        card-type="content"
                     >
                         <template #default="{ row }">
                             <el-tooltip :content="row.mountpoint">
@@ -101,12 +104,14 @@
                         show-overflow-tooltip
                         min-width="80"
                         prop="driver"
+                        card-type="content"
                     />
                     <el-table-column
                         prop="createdAt"
                         min-width="90"
                         :label="$t('commons.table.date')"
                         :formatter="dateFormat"
+                        card-type="content"
                     />
                     <fu-table-operations :buttons="buttons" :label="$t('commons.table.operate')" fix />
                 </ComplexTable>

@@ -67,14 +67,37 @@ export const useCardColumns = (columnNodes: () => VNode[], columns: () => unknow
 
     const cardColumns = computed<Record<CardType, VNode[]>>(() => {
         const grouped = Object.fromEntries(cardTypes.map((type) => [type, []])) as Record<CardType, VNode[]>;
+        const untagged: VNode[] = [];
         for (const column of columnNodes().filter(
             (vnode) => isElTableColumnVNode(vnode) || isOperationsColumn(vnode),
         )) {
-            const columnProps = (column.props || {}) as Record<string, any>;
-            const cardType = (columnProps.cardType || columnProps['card-type']) as CardType | undefined;
-            if (cardType && cardTypes.includes(cardType) && isVisible(column)) {
-                grouped[cardType].push(column);
+            if (!isVisible(column)) {
+                continue;
             }
+            // 行操作列统一归入卡片按钮区，无需显式标注 card-type
+            if (isOperationsColumn(column)) {
+                grouped.button.push(column);
+                continue;
+            }
+            const columnProps = (column.props || {}) as Record<string, any>;
+            // 选择框、序号、展开列为功能性列，卡片中不直接展示
+            if (['selection', 'index', 'expand'].includes(columnProps.type)) {
+                continue;
+            }
+            const cardType = (columnProps.cardType || columnProps['card-type']) as CardType | undefined;
+            if (cardType && cardTypes.includes(cardType)) {
+                grouped[cardType].push(column);
+            } else {
+                untagged.push(column);
+            }
+        }
+        // 未标注 card-type 的列自动兜底：第一列作卡片标题，其余作描述行，
+        // 使所有列表页在移动端卡片视图下都能完整展示信息
+        if (untagged.length) {
+            if (grouped.name.length === 0) {
+                grouped.name.push(untagged.shift() as VNode);
+            }
+            grouped.description.push(...untagged);
         }
         return grouped;
     });

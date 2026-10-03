@@ -79,11 +79,18 @@ export function useMultipleSearchable(paths) {
         searchableStatus.value = false;
     };
 
+    const focusSearchableInput = (id: string) => {
+        nextTick(() => {
+            searchableInputRefs.value[id]?.focus();
+        });
+    };
+
     return {
         searchableStatus,
         searchablePath,
         searchableInputRefs,
         setSearchableInputRef,
         searchableInputBlur,
+        focusSearchableInput,
     };
 }
