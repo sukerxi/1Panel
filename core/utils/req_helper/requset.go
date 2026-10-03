@@ -26,15 +26,20 @@ func HandleRequest(url, method string, timeout int) (int, []byte, error) {
 		ResponseHeaderTimeout: 10 * time.Second,
 		IdleConnTimeout:       15 * time.Second,
 	}
-	return handleRequestWithTransport(url, method, transport, timeout)
+	return handleRequestWithTransport(url, method, transport, timeout, nil)
 }
 
 func HandleRequestWithProxy(url, method string, timeout int) (int, []byte, error) {
 	transport := xpack.MultiNodeProvider.LoadRequestTransport()
-	return handleRequestWithTransport(url, method, transport, timeout)
+	return handleRequestWithTransport(url, method, transport, timeout, nil)
 }
 
-func handleRequestWithTransport(url, method string, transport *http.Transport, timeout int) (int, []byte, error) {
+func HandleRequestWithProxyHeaders(url, method string, timeout int, headers map[string]string) (int, []byte, error) {
+	transport := xpack.MultiNodeProvider.LoadRequestTransport()
+	return handleRequestWithTransport(url, method, transport, timeout, headers)
+}
+
+func handleRequestWithTransport(url, method string, transport *http.Transport, timeout int, headers map[string]string) (int, []byte, error) {
 	defer func() {
 		if r := recover(); r != nil {
 			global.LOG.Errorf("handle request failed, error message: %v", r)
@@ -50,6 +55,9 @@ func handleRequestWithTransport(url, method string, transport *http.Transport, t
 		return 0, nil, err
 	}
 	request.Header.Set("Content-Type", "application/json")
+	for key, value := range headers {
+		request.Header.Set(key, value)
+	}
 	resp, err := client.Do(request)
 	if err != nil {
 		return 0, nil, err

@@ -142,6 +142,14 @@ export const renameRile = (params: File.FileRename) => {
     return http.post<File.File>('files/rename', params);
 };
 
+export const batchRenamePreview = (params: File.FileBatchRenameReq) => {
+    return http.post<File.BatchRenameItem[]>('files/batch/rename/preview', params);
+};
+
+export const batchRename = (params: File.FileBatchRenameReq) => {
+    return http.post('files/batch/rename', params, TimeoutEnum.T_5M);
+};
+
 export const changeOwner = (params: File.FileOwner) => {
     return http.post<File.File>('files/owner', params);
 };

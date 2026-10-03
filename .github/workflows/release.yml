@@ -1,0 +1,112 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (must already exist), e.g. v2.0.1'
+        required: true
+        default: ''
+      prerelease:
+        description: 'Mark as a pre-release (beta)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goarch: amd64
+          - goarch: arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache-dependency-path: |
+            core/go.sum
+            agent/go.sum
+
+      - name: Resolve release tag
+        id: meta
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          ARCHIVE_DIR="1panel-${TAG}-linux-${{ matrix.goarch }}"
+          echo "archive_dir=${ARCHIVE_DIR}" >> "$GITHUB_OUTPUT"
+          case "${TAG}" in
+            *beta*|*alpha*|*rc*) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "prerelease=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Build frontend (embedded into core)
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build:pro
+
+      - name: Ensure embed static directory
+        run: |
+          mkdir -p core/cmd/server/web/static
+          if [ -z "$(ls -A core/cmd/server/web/static)" ]; then
+            touch core/cmd/server/web/static/.gitkeep
+          fi
+
+      - name: Build 1panel-core
+        working-directory: core
+        env:
+          CGO_ENABLED: '0'
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          mkdir -p ../build
+          go build -trimpath -ldflags '-s -w' -o "../build/${{ steps.meta.outputs.archive_dir }}/1panel-core" ./cmd/server
+
+      - name: Build 1panel-agent
+        working-directory: agent
+        env:
+          CGO_ENABLED: '0'
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          go build -trimpath -ldflags '-s -w' -o "../build/${{ steps.meta.outputs.archive_dir }}/1panel-agent" ./cmd/server
+
+      - name: Package tarball
+        id: package
+        working-directory: build
+        run: |
+          tar -czf "${{ steps.meta.outputs.archive_dir }}.tar.gz" "${{ steps.meta.outputs.archive_dir }}"
+          echo "asset=${{ steps.meta.outputs.archive_dir }}.tar.gz" >> "$GITHUB_OUTPUT"
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.tag }}
+          files: build/${{ steps.package.outputs.asset }}
+          generate_release_notes: true
+          prerelease: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.prerelease == 'true' || steps.meta.outputs.prerelease == 'true' }}
+          fail_on_unmatched_files: true

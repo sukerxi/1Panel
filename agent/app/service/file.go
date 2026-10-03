@@ -72,6 +72,8 @@ type IFileService interface {
 	DirSize(req request.DirSizeReq) (response.DirSizeRes, error)
 	DepthDirSize(req request.DirSizeReq) ([]response.DepthDirSizeRes, error)
 	ChangeName(req request.FileRename) error
+	BatchRenamePreview(req request.FileBatchRenamePreview) ([]response.BatchRenameItem, error)
+	BatchRename(req request.FileBatchRename) error
 	Wget(w request.FileWget) (string, error)
 	MvFile(m request.FileMove) error
 	StopMvFile(taskID string) error

@@ -720,6 +720,7 @@
         <ShareList ref="shareListRef" @close="search" @detail="openShareDetail" />
         <FileHistoryDrawer ref="historyDrawerRef" @restored="search" />
         <BatchRole ref="batchRoleRef" @close="search" />
+        <BatchRename ref="batchRenameRef" @close="search" />
         <VscodeOpenDialog ref="dialogVscodeOpenRef" />
         <Preview ref="previewRef" />
         <TextPreview ref="textPreviewRef" />
@@ -792,6 +793,7 @@ import Favorite from './favorite/index.vue';
 import ShareList from './share-list/index.vue';
 import FileHistoryDrawer from './code-editor/history/index.vue';
 import BatchRole from './batch-role/index.vue';
+import BatchRename from './batch-rename/index.vue';
 import Preview from './preview/index.vue';
 import TextPreview from './text-preview/index.vue';
 import VscodeOpenDialog from '@/components/vscode-open/index.vue';
@@ -935,6 +937,7 @@ const historyDrawerRef = ref<InstanceType<typeof FileHistoryDrawer> | null>(null
 const hoveredRowPath = ref(null);
 const favorites = ref([]);
 const batchRoleRef = ref();
+const batchRenameRef = ref();
 const dialogVscodeOpenRef = ref();
 const previewRef = ref();
 const textPreviewRef = ref();
@@ -1008,6 +1011,10 @@ const toolButtons = ref([
         action: () => openCompress(selects.value),
     },
     {
+        label: 'file.batchRename.button',
+        action: () => openBatchRename(selects.value),
+    },
+    {
         label: 'file.role',
         action: () => openBatchRole(selects.value),
     },
@@ -1020,7 +1027,7 @@ const toolButtons = ref([
 const visibleButtons = ref([...toolButtons.value]);
 const moreButtons = ref([]);
 const isRightToolbarWrapped = ref(false);
-const batchButtonMinWidths = [64, 64, 64, 64, 64];
+const batchButtonMinWidths = [64, 64, 64, 72, 64, 64];
 const moreButtonWidth = 76;
 const toolbarGap = 8;
 
@@ -1698,6 +1705,10 @@ const openWget = () => {
 
 const openBatchRole = (items: File.File[]) => {
     batchRoleRef.value.acceptParams({ files: items });
+};
+
+const openBatchRename = (items: File.File[]) => {
+    batchRenameRef.value.acceptParams({ files: items });
 };
 
 const closeWget = (submit: boolean) => {

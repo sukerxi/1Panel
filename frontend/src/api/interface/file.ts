@@ -203,6 +203,39 @@ export namespace File {
         newName: string;
     }
 
+    export type BatchRenameRuleType = 'replace' | 'insert' | 'case' | 'number' | 'episode';
+
+    export interface BatchRenameRule {
+        type: BatchRenameRuleType;
+        find?: string;
+        replace?: string;
+        useRegex?: boolean;
+        matchCase?: boolean;
+        position?: number;
+        text?: string;
+        caseType?: 'lower' | 'upper' | 'title';
+        start?: number;
+        step?: number;
+        padding?: number;
+        template?: string;
+        pattern?: string;
+        offset?: number;
+    }
+
+    export interface FileBatchRenameReq {
+        paths: string[];
+        rule: BatchRenameRule;
+    }
+
+    export interface BatchRenameItem {
+        oldPath: string;
+        newPath: string;
+        oldName: string;
+        newName: string;
+        changed: boolean;
+        error: string;
+    }
+
     export interface FileOwner {
         path: string;
         user: string;

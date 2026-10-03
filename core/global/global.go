@@ -1,6 +1,8 @@
 package global
 
 import (
+	"fmt"
+
 	"github.com/1Panel-dev/1Panel/core/init/auth"
 	"github.com/1Panel-dev/1Panel/core/init/session/psession"
 	"github.com/go-playground/validator/v10"
@@ -10,6 +12,23 @@ import (
 	"github.com/spf13/viper"
 	"gorm.io/gorm"
 )
+
+// GitHubReleaseRepo points online upgrade checks to the fork's GitHub repository.
+// Release version detection, release notes and package downloads all use these values.
+const (
+	GitHubOwner = "sukerxi"
+	GitHubRepo  = "1Panel"
+)
+
+// GithubAPIBaseURL is the GitHub REST API root of the target repository.
+func GithubAPIBaseURL() string {
+	return fmt.Sprintf("https://api.github.com/repos/%s/%s", GitHubOwner, GitHubRepo)
+}
+
+// GithubReleaseDownloadURL is the release assets download root. Usage: {base}/{tag}/{fileName}.
+func GithubReleaseDownloadURL() string {
+	return fmt.Sprintf("https://github.com/%s/%s/releases/download", GitHubOwner, GitHubRepo)
+}
 
 var (
 	DB      *gorm.DB

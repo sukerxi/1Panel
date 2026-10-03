@@ -3,12 +3,11 @@ package service
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"path"
-	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -26,7 +25,6 @@ import (
 	"github.com/1Panel-dev/1Panel/core/utils/req_helper"
 	upgradeUtil "github.com/1Panel-dev/1Panel/core/utils/upgrade"
 	"github.com/1Panel-dev/1Panel/core/utils/xpack"
-	"golang.org/x/net/html"
 )
 
 type serviceInfo struct {
@@ -88,6 +86,94 @@ func NewIUpgradeService() IUpgradeService {
 	return &UpgradeService{}
 }
 
+type githubReleaseAsset struct {
+	Name               string `json:"name"`
+	BrowserDownloadURL string `json:"browser_download_url"`
+}
+
+type githubRelease struct {
+	TagName     string               `json:"tag_name"`
+	Name        string               `json:"name"`
+	Body        string               `json:"body"`
+	Prerelease  bool                 `json:"prerelease"`
+	Draft       bool                 `json:"draft"`
+	PublishedAt string               `json:"published_at"`
+	Assets      []githubReleaseAsset `json:"assets"`
+}
+
+var githubReleaseCache = struct {
+	sync.Mutex
+	releases  []githubRelease
+	expiresAt time.Time
+}{}
+
+// normalizeVersionTag accepts a GitHub tag (with or without a leading "v")
+// and returns the canonical panel version string (e.g. "v2.3.2").
+func normalizeVersionTag(tag string) string {
+	tag = strings.TrimSpace(tag)
+	if tag == "" {
+		return ""
+	}
+	if tag[0] >= '0' && tag[0] <= '9' {
+		return "v" + tag
+	}
+	return tag
+}
+
+func (u *UpgradeService) loadGithubReleases(forceRefresh bool) ([]githubRelease, error) {
+	githubReleaseCache.Lock()
+	defer githubReleaseCache.Unlock()
+	if !forceRefresh && time.Now().Before(githubReleaseCache.expiresAt) && len(githubReleaseCache.releases) > 0 {
+		return githubReleaseCache.releases, nil
+	}
+	requestURL := global.GithubAPIBaseURL() + "/releases?per_page=50"
+	headers := map[string]string{
+		"Accept":               "application/vnd.github+json",
+		"User-Agent":           "1Panel-" + global.CONF.Base.Version,
+		"X-GitHub-Api-Version": "2022-11-28",
+	}
+	status, res, err := req_helper.HandleRequestWithProxyHeaders(requestURL, http.MethodGet, constant.TimeOut20s, headers)
+	if err != nil {
+		return nil, err
+	}
+	if status != http.StatusOK {
+		return nil, fmt.Errorf("load github releases failed, http status: %d", status)
+	}
+	var releases []githubRelease
+	if err := json.Unmarshal(res, &releases); err != nil {
+		return nil, fmt.Errorf("parse github releases failed: %w", err)
+	}
+	filtered := make([]githubRelease, 0, len(releases))
+	for _, item := range releases {
+		if item.Draft || strings.TrimSpace(item.TagName) == "" {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	githubReleaseCache.releases = filtered
+	githubReleaseCache.expiresAt = time.Now().Add(5 * time.Minute)
+	return filtered, nil
+}
+
+func firstGithubRelease(releases []githubRelease, prerelease bool) *githubRelease {
+	for i := range releases {
+		if releases[i].Prerelease == prerelease {
+			return &releases[i]
+		}
+	}
+	return nil
+}
+
+func findGithubReleaseByVersion(releases []githubRelease, version string) *githubRelease {
+	version = normalizeVersionTag(version)
+	for i := range releases {
+		if normalizeVersionTag(releases[i].TagName) == version {
+			return &releases[i]
+		}
+	}
+	return nil
+}
+
 func (u *UpgradeService) SearchUpgrade() (*dto.UpgradeInfo, error) {
 	if global.CONF.Base.IsOffline {
 		return &dto.UpgradeInfo{}, nil
@@ -97,50 +183,64 @@ func (u *UpgradeService) SearchUpgrade() (*dto.UpgradeInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	DeveloperMode, err := settingRepo.Get(repo.WithByKey("DeveloperMode"))
+	developerMode, err := settingRepo.Get(repo.WithByKey("DeveloperMode"))
 	if err != nil {
 		return nil, err
 	}
 
-	upgrade.TestVersion, upgrade.NewVersion, upgrade.LatestVersion = u.loadVersionByMode(DeveloperMode.Value, currentVersion.Value)
-	var itemVersion string
-	if len(upgrade.NewVersion) != 0 {
-		itemVersion = upgrade.NewVersion
-	}
-	if (global.CONF.Base.Mode == "dev" || DeveloperMode.Value == constant.StatusEnable) && len(upgrade.TestVersion) != 0 {
-		itemVersion = upgrade.TestVersion
-	}
-	if len(upgrade.LatestVersion) != 0 {
-		itemVersion = upgrade.LatestVersion
-	}
-	if len(itemVersion) == 0 {
+	releases, err := u.loadGithubReleases(false)
+	if err != nil {
+		// A failing version check (offline/proxy/rate limit) must not break the settings page.
+		global.LOG.Errorf("load github releases for upgrade check failed, err: %v", err)
 		return &upgrade, nil
 	}
-	mode := global.CONF.Base.Mode
-	if strings.Contains(itemVersion, "beta") {
-		mode = "beta"
+	developerEnabled := global.CONF.Base.Mode == "dev" || developerMode.Value == constant.StatusEnable
+	if stable := firstGithubRelease(releases, false); stable != nil {
+		version := normalizeVersionTag(stable.TagName)
+		if common.ComparePanelVersion(version, currentVersion.Value) {
+			upgrade.LatestVersion = version
+		}
 	}
-	if strings.HasPrefix(upgrade.TestVersion, upgrade.LatestVersion+"-beta") {
-		upgrade.TestVersion = ""
+	if developerEnabled {
+		if beta := firstGithubRelease(releases, true); beta != nil {
+			version := normalizeVersionTag(beta.TagName)
+			if common.ComparePanelVersion(version, currentVersion.Value) {
+				upgrade.TestVersion = version
+			}
+		}
 	}
-	notes, err := u.loadReleaseNotes(fmt.Sprintf("%s/%s/%s/release/1panel-%s-release-notes", global.RepoURL(), mode, itemVersion, itemVersion))
-	if err != nil {
-		return nil, fmt.Errorf("load releases-notes of version %s failed, err: %v", itemVersion, err)
+
+	itemVersion := upgrade.LatestVersion
+	if developerEnabled && upgrade.TestVersion != "" {
+		itemVersion = upgrade.TestVersion
 	}
-	upgrade.ReleaseNote = notes
+	if itemVersion == "" {
+		return &upgrade, nil
+	}
+	if rel := findGithubReleaseByVersion(releases, itemVersion); rel != nil {
+		upgrade.ReleaseNote = rel.Body
+	}
 	return &upgrade, nil
 }
 
 func (u *UpgradeService) LoadNotes(req dto.Upgrade) (string, error) {
-	mode := global.CONF.Base.Mode
-	if strings.Contains(req.Version, "beta") {
-		mode = "beta"
-	}
-	notes, err := u.loadReleaseNotes(fmt.Sprintf("%s/%s/%s/release/1panel-%s-release-notes", global.RepoURL(), mode, req.Version, req.Version))
+	releases, err := u.loadGithubReleases(false)
 	if err != nil {
-		return "", fmt.Errorf("load releases-notes of version %s failed, err: %v", req.Version, err)
+		return "", err
 	}
-	return notes, nil
+	rel := findGithubReleaseByVersion(releases, req.Version)
+	if rel == nil {
+		// A release may have been published after the cached response, refresh once.
+		releases, err = u.loadGithubReleases(true)
+		if err != nil {
+			return "", err
+		}
+		rel = findGithubReleaseByVersion(releases, req.Version)
+	}
+	if rel == nil {
+		return "", fmt.Errorf("release notes of version %s not found in github repository %s/%s", req.Version, global.GitHubOwner, global.GitHubRepo)
+	}
+	return rel.Body, nil
 }
 
 func (u *UpgradeService) Upgrade(req dto.Upgrade) error {
@@ -168,16 +268,12 @@ func (u *UpgradeService) Upgrade(req dto.Upgrade) error {
 		return err
 	}
 
-	mode := global.CONF.Base.Mode
-	if strings.Contains(req.Version, "beta") {
-		mode = "beta"
-	}
-	downloadPath := fmt.Sprintf("%s/%s/%s/release", global.RepoURL(), mode, req.Version)
 	fileName := fmt.Sprintf("1panel-%s-%s-%s.tar.gz", req.Version, "linux", itemArch)
+	downloadURL := u.resolvePackageURL(req.Version, fileName)
 	_ = settingRepo.Update("SystemStatus", "Upgrading")
 	go func() {
 		oldLang := ctl_conf.Load("LANGUAGE")
-		if err := files.DownloadFileWithProxyStream(downloadPath+"/"+fileName, downloadDir+"/"+fileName); err != nil {
+		if err := files.DownloadFileWithProxyStream(downloadURL, downloadDir+"/"+fileName); err != nil {
 			global.LOG.Errorf("download service file failed, err: %v", err)
 			_ = settingRepo.Update("SystemStatus", "Free")
 			return
@@ -216,48 +312,67 @@ func (u *UpgradeService) Upgrade(req dto.Upgrade) error {
 			return
 		}
 
-		if err := files.CopyFileWithRename(path.Join(tmpDir, "1pctl"), "/usr/local/bin/1pctl"); err != nil {
-			global.LOG.Errorf("upgrade 1pctl failed, err: %v", err)
-			_ = settingRepo.Update("SystemStatus", "Free")
-			u.handleRollback(originalDir, 2, svcInfo)
-			return
-		}
-		if err := ctl_conf.UpdateInFile("/usr/local/bin/1pctl", "BASE_DIR", global.CONF.Base.InstallDir); err != nil {
-			global.LOG.Errorf("upgrade basedir in 1pctl failed, err: %v", err)
-			u.handleRollback(originalDir, 2, svcInfo)
-			return
-		}
-		if err := ctl_conf.UpdateInFile("/usr/local/bin/1pctl", "LANGUAGE", oldLang); err != nil {
-			global.LOG.Errorf("upgrade basedir in 1pctl failed, err: %v", err)
-			u.handleRollback(originalDir, 2, svcInfo)
-			return
+		// 1pctl, init scripts, lang files and GeoIP database are packaged by the
+		// upstream installer repository. Fork builds may only ship the two binaries,
+		// so every extra resource is upgraded only when the archive contains it.
+		if _, err := os.Stat(path.Join(tmpDir, "1pctl")); err == nil {
+			if err := files.CopyFileWithRename(path.Join(tmpDir, "1pctl"), "/usr/local/bin/1pctl"); err != nil {
+				global.LOG.Errorf("upgrade 1pctl failed, err: %v", err)
+				_ = settingRepo.Update("SystemStatus", "Free")
+				u.handleRollback(originalDir, 2, svcInfo)
+				return
+			}
+			if err := ctl_conf.UpdateInFile("/usr/local/bin/1pctl", "BASE_DIR", global.CONF.Base.InstallDir); err != nil {
+				global.LOG.Errorf("upgrade basedir in 1pctl failed, err: %v", err)
+				u.handleRollback(originalDir, 2, svcInfo)
+				return
+			}
+			if err := ctl_conf.UpdateInFile("/usr/local/bin/1pctl", "LANGUAGE", oldLang); err != nil {
+				global.LOG.Errorf("upgrade basedir in 1pctl failed, err: %v", err)
+				u.handleRollback(originalDir, 2, svcInfo)
+				return
+			}
+		} else {
+			global.LOG.Warn("upgrade package has no 1pctl, keep the existing one")
 		}
 		initScriptPath := path.Join(tmpDir, "initscript")
+		if _, err := os.Stat(initScriptPath); err == nil {
+			if err := files.CopyItem(false, true, path.Join(initScriptPath, svcInfo.selCoreName), svcInfo.basePath); err != nil {
+				global.LOG.Errorf("upgrade %s failed, err: %v", svcInfo.coreName, err)
+				_ = settingRepo.Update("SystemStatus", "Free")
+				u.handleRollback(originalDir, 3, svcInfo)
+				return
+			}
+			if err := files.CopyItem(false, true, path.Join(initScriptPath, svcInfo.selAgentName), svcInfo.basePath); err != nil {
+				global.LOG.Errorf("upgrade %s failed, err: %v", svcInfo.agentName, err)
+				_ = settingRepo.Update("SystemStatus", "Free")
+				u.handleRollback(originalDir, 3, svcInfo)
+				return
+			}
+		} else {
+			global.LOG.Warn("upgrade package has no initscript, keep the existing ones")
+		}
 
-		if err := files.CopyItem(false, true, path.Join(initScriptPath, svcInfo.selCoreName), svcInfo.basePath); err != nil {
-			global.LOG.Errorf("upgrade %s failed, err: %v", svcInfo.coreName, err)
-			_ = settingRepo.Update("SystemStatus", "Free")
-			u.handleRollback(originalDir, 3, svcInfo)
-			return
+		if _, err := os.Stat(path.Join(tmpDir, "lang")); err == nil {
+			if err := files.CopyItem(true, true, path.Join(tmpDir, "lang"), "/usr/local/bin"); err != nil {
+				global.LOG.Errorf("Update language files failed: %v", err)
+				_ = settingRepo.Update("SystemStatus", "Free")
+				u.handleRollback(originalDir, 4, svcInfo)
+				return
+			}
+		} else {
+			global.LOG.Warn("upgrade package has no lang files, keep the existing ones")
 		}
-		if err := files.CopyItem(false, true, path.Join(initScriptPath, svcInfo.selAgentName), svcInfo.basePath); err != nil {
-			global.LOG.Errorf("upgrade %s failed, err: %v", svcInfo.agentName, err)
-			_ = settingRepo.Update("SystemStatus", "Free")
-			u.handleRollback(originalDir, 3, svcInfo)
-			return
-		}
-
-		if err := files.CopyItem(true, true, path.Join(tmpDir, "lang"), "/usr/local/bin"); err != nil {
-			global.LOG.Errorf("Update language files failed: %v", err)
-			_ = settingRepo.Update("SystemStatus", "Free")
-			u.handleRollback(originalDir, 4, svcInfo)
-			return
-		}
-		if err := files.CopyFileWithRename(path.Join(tmpDir, "GeoIP.mmdb"), path.Join(global.CONF.Base.InstallDir, "1panel/geo/GeoIP.mmdb")); err != nil {
-			global.LOG.Warnf("Update GeoIP database failed: %v", err)
-			_ = settingRepo.Update("SystemStatus", "Free")
-			u.handleRollback(originalDir, 4, svcInfo)
-			return
+		geoipPath := path.Join(global.CONF.Base.InstallDir, "1panel/geo/GeoIP.mmdb")
+		if _, err := os.Stat(path.Join(tmpDir, "GeoIP.mmdb")); err == nil {
+			if err := files.CopyFileWithRename(path.Join(tmpDir, "GeoIP.mmdb"), geoipPath); err != nil {
+				global.LOG.Warnf("Update GeoIP database failed: %v", err)
+				_ = settingRepo.Update("SystemStatus", "Free")
+				u.handleRollback(originalDir, 4, svcInfo)
+				return
+			}
+		} else {
+			global.LOG.Warn("upgrade package has no GeoIP.mmdb, keep the existing one")
 		}
 
 		global.LOG.Info("upgrade successful!")
@@ -288,166 +403,31 @@ func (u *UpgradeService) Rollback(req dto.OperateByID) error {
 	return nil
 }
 
-type noteHelper struct {
-	Docs []noteDetailHelper `json:"docs"`
-}
-type noteDetailHelper struct {
-	Location string `json:"location"`
-	Text     string `json:"text"`
-	Title    string `json:"title"`
+func formatGithubPublishTime(t string) string {
+	if t == "" {
+		return ""
+	}
+	publishedAt, err := time.Parse(time.RFC3339, t)
+	if err != nil {
+		return ""
+	}
+	return publishedAt.Format("2006-01-02")
 }
 
 func (u *UpgradeService) LoadRelease() ([]dto.ReleasesNotes, error) {
-	docSource, _ := settingRepo.GetValueByKey("DocSource")
-	lang, _ := settingRepo.GetValueByKey("Language")
 	var notes []dto.ReleasesNotes
-	url := "https://docs.fit2cloud.com/1panel/changelog/"
-	useIntlDocs := false
-	lang = strings.ToLower(strings.TrimSpace(lang))
-	if docSource == "withByRegion" {
-		useIntlDocs = global.CONF.Base.Edition == "intl"
-	} else {
-		useIntlDocs = lang != "zh"
-	}
-	if useIntlDocs {
-		url = "https://docs.1panel.pro/v2/search/search_index.json"
-	}
-	resp, err := req_helper.HandleGet(url)
+	releases, err := u.loadGithubReleases(false)
 	if err != nil {
 		return notes, err
 	}
-	defer resp.Body.Close()
-	if !useIntlDocs {
-		if resp.StatusCode != http.StatusOK {
-			return notes, fmt.Errorf("load release notes failed: HTTP %d", resp.StatusCode)
-		}
-		return parseReleaseHTML(resp.Body)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return notes, err
-	}
-	var nodeItem noteHelper
-	if err := json.Unmarshal(body, &nodeItem); err != nil {
-		return notes, err
-	}
-	for _, item := range nodeItem.Docs {
-		if !strings.HasPrefix(item.Location, "changelog/#v") {
-			continue
-		}
-		itemNote := analyzeDoc(item.Title, item.Text)
-		if len(itemNote.CreatedAt) != 0 {
-			notes = append(notes, analyzeDoc(item.Title, item.Text))
-		}
-	}
-
-	return notes, nil
-}
-
-func parseReleaseHTML(reader io.Reader) ([]dto.ReleasesNotes, error) {
-	doc, err := html.Parse(reader)
-	if err != nil {
-		return nil, err
-	}
-	var article *html.Node
-	for node := range doc.Descendants() {
-		if node.Type == html.ElementNode && node.Data == "article" {
-			article = node
-			break
-		}
-	}
-	if article == nil {
-		return nil, fmt.Errorf("release notes article not found")
-	}
-	textContent := func(node *html.Node) string {
-		var text strings.Builder
-		for child := range node.Descendants() {
-			if child.Type == html.TextNode {
-				text.WriteString(child.Data)
-			}
-		}
-		return strings.TrimSpace(strings.ReplaceAll(text.String(), "\u200b", ""))
-	}
-	var notes []dto.ReleasesNotes
-	for heading := range article.Descendants() {
-		if heading.Type != html.ElementNode || heading.Data != "h3" {
-			continue
-		}
-		version := textContent(heading)
-		if !strings.HasPrefix(version, "v") {
-			continue
-		}
-		item := dto.ReleasesNotes{Version: version}
-		var content strings.Builder
-		section := ""
-		for node := heading.NextSibling; node != nil; node = node.NextSibling {
-			if node.Type != html.ElementNode {
-				continue
-			}
-			if node.Data == "h1" || node.Data == "h2" || node.Data == "h3" {
-				break
-			}
-			if item.CreatedAt == "" {
-				date := textContent(node)
-				if _, err := time.Parse("2006年1月2日", date); node.Data != "p" || err != nil {
-					return nil, fmt.Errorf("release date not found for %s", version)
-				}
-				item.CreatedAt = date
-				continue
-			}
-			if node.Data == "p" {
-				section = textContent(node)
-			}
-			for child := range node.Descendants() {
-				if child.Type != html.ElementNode || child.Data != "li" {
-					continue
-				}
-				switch section {
-				case "新增功能":
-					item.NewCount++
-				case "功能优化":
-					item.OptimizationCount++
-				case "问题修复":
-					item.FixCount++
-				}
-			}
-			if err := html.Render(&content, node); err != nil {
-				return nil, err
-			}
-		}
-		if item.CreatedAt == "" || content.Len() == 0 {
-			return nil, fmt.Errorf("release notes content not found for %s", version)
-		}
-		item.Content = content.String()
-		notes = append(notes, item)
-	}
-	if len(notes) == 0 {
-		return nil, fmt.Errorf("release notes versions not found")
+	for _, item := range releases {
+		notes = append(notes, dto.ReleasesNotes{
+			Version:   normalizeVersionTag(item.TagName),
+			Content:   item.Body,
+			CreatedAt: formatGithubPublishTime(item.PublishedAt),
+		})
 	}
 	return notes, nil
-}
-
-func analyzeDoc(version, content string) dto.ReleasesNotes {
-	var item dto.ReleasesNotes
-	parts := strings.Split(content, "<p>")
-	if len(parts) < 3 {
-		return item
-	}
-	item.CreatedAt = strings.ReplaceAll(strings.TrimSpace(parts[1]), "</p>", "")
-	for i := 1; i < len(parts); i++ {
-		if strings.Contains(parts[i], "问题修复") || strings.Contains(parts[i], "Bug Fixes") {
-			item.FixCount = strings.Count(parts[i], "<li>")
-		}
-		if strings.Contains(parts[i], "新增功能") || strings.Contains(parts[i], "New Features") {
-			item.NewCount = strings.Count(parts[i], "<li>")
-		}
-		if strings.Contains(parts[i], "功能优化") || strings.Contains(parts[i], "Improvements") {
-			item.OptimizationCount = strings.Count(parts[i], "<li>")
-		}
-	}
-	item.Content = strings.Replace(content, fmt.Sprintf("<p>%s</p>", item.CreatedAt), "", 1)
-	item.Version = version
-	return item
 }
 
 func checkUpgradeSpace() error {
@@ -531,110 +511,19 @@ func (u *UpgradeService) handleRollback(originalDir string, errStep int, svcInfo
 	}
 }
 
-func (u *UpgradeService) loadVersionByMode(developer, currentVersion string) (string, string, string) {
-	var current, latest string
-	if global.CONF.Base.Mode == "dev" {
-		devVersionLatest := u.loadVersion(true, currentVersion, "dev")
-		return devVersionLatest, "", ""
-	}
-
-	betaVersionLatest := ""
-	latest = u.loadVersion(true, currentVersion, "stable")
-	current = u.loadVersion(false, currentVersion, "stable")
-	if developer == constant.StatusEnable {
-		betaVersionLatest = u.loadVersion(true, currentVersion, "beta")
-	}
-	if current != latest {
-		return betaVersionLatest, current, latest
-	}
-
-	versionPart := strings.Split(current, ".")
-	if len(versionPart) < 3 {
-		return betaVersionLatest, "", latest
-	}
-	num, _ := strconv.Atoi(versionPart[1])
-	if num == 0 {
-		return betaVersionLatest, "", latest
-	}
-	if num >= 10 {
-		if current[:6] == currentVersion[:6] {
-			return betaVersionLatest, current, ""
-		}
-		return betaVersionLatest, "", latest
-	}
-	if current[:5] == currentVersion[:5] {
-		return betaVersionLatest, "", ""
-	}
-	return betaVersionLatest, "", latest
-}
-
-func (u *UpgradeService) loadVersion(isLatest bool, currentVersion, mode string) string {
-	path := fmt.Sprintf("%s/%s/latest", global.RepoURL(), mode)
-	if !isLatest {
-		path = fmt.Sprintf("%s/%s/latest.current", global.RepoURL(), mode)
-	}
-	_, latestVersionRes, err := req_helper.HandleRequestWithProxy(path, http.MethodGet, constant.TimeOut20s)
+func (u *UpgradeService) resolvePackageURL(version, fileName string) string {
+	releases, err := u.loadGithubReleases(false)
 	if err != nil {
-		global.LOG.Errorf("load latest version from oss failed, err: %v", err)
-		return ""
-	}
-	version := string(latestVersionRes)
-	if strings.Contains(version, "<") {
-		global.LOG.Errorf("load latest version from oss failed, err: %v", version)
-		return ""
-	}
-	if isLatest {
-		return u.checkVersion(version, currentVersion)
-	}
-
-	versionMap := make(map[string]string)
-	if err := json.Unmarshal(latestVersionRes, &versionMap); err != nil {
-		global.LOG.Errorf("load latest version from oss failed (error unmarshal), err: %v", err)
-		return ""
-	}
-
-	versionPart := strings.Split(currentVersion, ".")
-	if len(versionPart) < 3 {
-		global.LOG.Errorf("current version is error format: %s", currentVersion)
-		return ""
-	}
-	num, _ := strconv.Atoi(versionPart[1])
-	if num >= 10 {
-		if version, ok := versionMap[currentVersion[0:5]]; ok {
-			return u.checkVersion(version, currentVersion)
+		global.LOG.Warnf("load github releases when resolving package failed, err: %v", err)
+	} else if rel := findGithubReleaseByVersion(releases, version); rel != nil {
+		for _, asset := range rel.Assets {
+			if asset.Name == fileName && asset.BrowserDownloadURL != "" {
+				return asset.BrowserDownloadURL
+			}
 		}
-		return ""
 	}
-	if version, ok := versionMap[currentVersion[0:4]]; ok {
-		return u.checkVersion(version, currentVersion)
-	}
-	return ""
-}
-
-func (u *UpgradeService) checkVersion(v2, v1 string) string {
-	addSuffix := false
-	if !strings.Contains(v1, "-") {
-		v1 = v1 + "-lts"
-	}
-	if !strings.Contains(v2, "-") {
-		addSuffix = true
-		v2 = v2 + "-lts"
-	}
-	if common.ComparePanelVersion(v2, v1) {
-		if addSuffix {
-			return strings.TrimSuffix(v2, "-lts")
-		}
-		return v2
-	}
-	return ""
-}
-
-func (u *UpgradeService) loadReleaseNotes(path string) (string, error) {
-	_, releaseNotes, err := req_helper.HandleRequestWithProxy(path, http.MethodGet, constant.TimeOut20s)
-	if err != nil {
-		return "", err
-	}
-	return string(releaseNotes), nil
+	// Fallback to the standard GitHub release asset URL convention.
+	return fmt.Sprintf("%s/%s/%s", global.GithubReleaseDownloadURL(), normalizeVersionTag(version), fileName)
 }
 
 func loadArch() (string, error) {

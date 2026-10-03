@@ -107,6 +107,45 @@ type FileRename struct {
 	NewName string `json:"newName" validate:"required"`
 }
 
+// BatchRenameRule is a single built-in rule for batch renaming.
+// Supported types: replace / insert / case / number / episode.
+type BatchRenameRule struct {
+	Type string `json:"type" validate:"required,oneof=replace insert case number episode"`
+
+	// replace rule
+	Find      string `json:"find"`
+	Replace   string `json:"replace"`
+	UseRegex  bool   `json:"useRegex"`
+	MatchCase bool   `json:"matchCase"`
+
+	// insert rule (Position is a rune index against the file stem; -1 means append)
+	Position int    `json:"position"`
+	Text     string `json:"text"`
+
+	// case rule: lower / upper / title
+	CaseType string `json:"caseType"`
+
+	// number & episode rules
+	Start    int    `json:"start"`
+	Step     int    `json:"step"`
+	Padding  int    `json:"padding"`
+	Template string `json:"template"` // placeholders: {name} {text} {n} {episode} {ext}
+
+	// episode rule
+	Pattern string `json:"pattern"` // custom episode regex, first capture group wins
+	Offset  int    `json:"offset"`
+}
+
+type FileBatchRenamePreview struct {
+	Paths []string        `json:"paths" validate:"required,min=1,max=1000,dive,required"`
+	Rule  BatchRenameRule `json:"rule" validate:"required"`
+}
+
+type FileBatchRename struct {
+	Paths []string        `json:"paths" validate:"required,min=1,max=1000,dive,required"`
+	Rule  BatchRenameRule `json:"rule" validate:"required"`
+}
+
 type FilePathCheck struct {
 	Path     string `json:"path" validate:"required"`
 	WithInit bool   `json:"withInit"`

@@ -37,6 +37,15 @@ type FileWgetRes struct {
 	Key string `json:"key"`
 }
 
+type BatchRenameItem struct {
+	OldPath string `json:"oldPath"`
+	NewPath string `json:"newPath"`
+	OldName string `json:"oldName"`
+	NewName string `json:"newName"`
+	Changed bool   `json:"changed"`
+	Error   string `json:"error"`
+}
+
 type FileLineContent struct {
 	End        bool     `json:"end"`
 	Path       string   `json:"path"`

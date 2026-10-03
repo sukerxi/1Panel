@@ -41,6 +41,8 @@ func (f *FileRouter) InitRouter(Router *gin.RouterGroup) {
 		fileRouter.POST("/chunkupload", baseApi.UploadChunkFiles)
 		fileRouter.POST("/chunkupload/stop", baseApi.StopChunkUpload)
 		fileRouter.POST("/rename", baseApi.ChangeFileName)
+		fileRouter.POST("/batch/rename/preview", baseApi.BatchRenamePreview)
+		fileRouter.POST("/batch/rename", baseApi.BatchRename)
 		fileRouter.POST("/wget", baseApi.WgetFile)
 		fileRouter.POST("/wget/stop", baseApi.StopWget)
 		fileRouter.POST("/wget/process/remove", baseApi.RemoveWgetRecords)

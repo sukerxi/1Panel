@@ -642,6 +642,48 @@ func (b *BaseApi) ChangeFileName(c *gin.Context) {
 }
 
 // @Tags File
+// @Summary Preview batch rename result
+// @Accept json
+// @Param request body request.FileBatchRenamePreview true "request"
+// @Success 200 {array} response.BatchRenameItem
+// @Security ApiKeyAuth
+// @Security Timestamp
+// @Router /files/batch/rename/preview [post]
+func (b *BaseApi) BatchRenamePreview(c *gin.Context) {
+	var req request.FileBatchRenamePreview
+	if err := helper.CheckBindAndValidate(&req, c); err != nil {
+		return
+	}
+	items, err := fileService.BatchRenamePreview(req)
+	if err != nil {
+		helper.InternalServer(c, err)
+		return
+	}
+	helper.SuccessWithData(c, items)
+}
+
+// @Tags File
+// @Summary Batch rename files with built-in rules
+// @Accept json
+// @Param request body request.FileBatchRename true "request"
+// @Success 200
+// @Security ApiKeyAuth
+// @Security Timestamp
+// @Router /files/batch/rename [post]
+// @x-panel-log {"bodyKeys":["paths"],"paramKeys":[],"BeforeFunctions":[],"formatZH":"批量重命名 [paths]","formatEN":"Batch rename [paths]"}
+func (b *BaseApi) BatchRename(c *gin.Context) {
+	var req request.FileBatchRename
+	if err := helper.CheckBindAndValidate(&req, c); err != nil {
+		return
+	}
+	if err := fileService.BatchRename(req); err != nil {
+		helper.InternalServer(c, err)
+		return
+	}
+	helper.Success(c)
+}
+
+// @Tags File
 // @Summary Wget file
 // @Accept json
 // @Param request body request.FileWget true "request"
