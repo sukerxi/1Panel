@@ -80,6 +80,7 @@ type IUpgradeService interface {
 	LoadNotes(req dto.Upgrade) (string, error)
 	SearchUpgrade() (*dto.UpgradeInfo, error)
 	LoadRelease() ([]dto.ReleasesNotes, error)
+	LoadUpgradeProgress() dto.UpgradeProgress
 }
 
 func NewIUpgradeService() IUpgradeService {
@@ -107,6 +108,17 @@ var githubReleaseCache = struct {
 	expiresAt time.Time
 }{}
 
+// githubDownloadMirrors are ghproxy-compatible public mirrors probed before
+// the direct GitHub URL. Public mirrors come and go, so every entry is
+// health-checked at download time and the direct URL always remains the last
+// fallback.
+var githubDownloadMirrors = []string{
+	"https://gh-proxy.org/",
+	"https://ghfast.top/",
+	"https://ghproxy.net/",
+	"https://ghproxy.homeboyc.cn/",
+}
+
 // normalizeVersionTag accepts a GitHub tag (with or without a leading "v")
 // and returns the canonical panel version string (e.g. "v2.3.2").
 func normalizeVersionTag(tag string) string {
@@ -132,7 +144,7 @@ func (u *UpgradeService) loadGithubReleases(forceRefresh bool) ([]githubRelease,
 		"User-Agent":           "1Panel-" + global.CONF.Base.Version,
 		"X-GitHub-Api-Version": "2022-11-28",
 	}
-	status, res, err := req_helper.HandleRequestWithProxyHeaders(requestURL, http.MethodGet, constant.TimeOut20s, headers)
+	status, res, err := u.requestGithubAPI(requestURL, headers)
 	if err != nil {
 		return nil, err
 	}
@@ -245,6 +257,9 @@ func (u *UpgradeService) LoadNotes(req dto.Upgrade) (string, error) {
 
 func (u *UpgradeService) Upgrade(req dto.Upgrade) error {
 	global.LOG.Info("start to upgrade now...")
+	if upgradeProgress.IsRunning() {
+		return fmt.Errorf("an upgrade task is already running")
+	}
 	itemArch, err := loadArch()
 	if err != nil {
 		return err
@@ -269,29 +284,41 @@ func (u *UpgradeService) Upgrade(req dto.Upgrade) error {
 	}
 
 	fileName := fmt.Sprintf("1panel-%s-%s-%s.tar.gz", req.Version, "linux", itemArch)
-	downloadURL := u.resolvePackageURL(req.Version, fileName)
+	directURL := u.resolvePackageURL(req.Version, fileName)
+	downloadCandidates := u.buildDownloadCandidates(directURL)
 	_ = settingRepo.Update("SystemStatus", "Upgrading")
+	upgradeProgress.Start(req.Version, downloadCandidates)
 	go func() {
-		oldLang := ctl_conf.Load("LANGUAGE")
-		if err := files.DownloadFileWithProxyStream(downloadURL, downloadDir+"/"+fileName); err != nil {
-			global.LOG.Errorf("download service file failed, err: %v", err)
+		failUpgrade := func(action string, err error, rollbackStep int) {
+			global.LOG.Errorf("%s failed, err: %v", action, err)
+			upgradeProgress.Fail(fmt.Sprintf("%s: %s", action, err.Error()))
+			if rollbackStep > 0 {
+				u.handleRollback(originalDir, rollbackStep, svcInfo)
+			}
 			_ = settingRepo.Update("SystemStatus", "Free")
+		}
+
+		oldLang := ctl_conf.Load("LANGUAGE")
+		upgradeProgress.SetStage(StageDownload)
+		if err := files.DownloadFileWithMirrors(downloadCandidates, downloadDir+"/"+fileName,
+			upgradeProgress.SetMirror, upgradeProgress.SetDownload); err != nil {
+			failUpgrade("download service file", err, 0)
 			return
 		}
 		global.LOG.Info("download all file successful!")
 		defer func() {
 			_ = os.Remove(downloadDir)
 		}()
+		upgradeProgress.SetStage(StageDecompress)
 		if err := files.HandleUnTar(downloadDir+"/"+fileName, downloadDir, ""); err != nil {
-			global.LOG.Errorf("decompress file failed, err: %v", err)
-			_ = settingRepo.Update("SystemStatus", "Free")
+			failUpgrade("decompress file", err, 0)
 			return
 		}
 		tmpDir := downloadDir + "/" + strings.ReplaceAll(fileName, ".tar.gz", "")
 
+		upgradeProgress.SetStage(StageBackup)
 		if err := u.handleBackup(originalDir, svcInfo); err != nil {
-			global.LOG.Errorf("handle backup original file failed, err: %v", err)
-			_ = settingRepo.Update("SystemStatus", "Free")
+			failUpgrade("backup original files", err, 0)
 			return
 		}
 		itemLog := model.UpgradeLog{NodeID: 0, OldVersion: global.CONF.Base.Version, NewVersion: req.Version, BackupFile: baseDir}
@@ -299,16 +326,13 @@ func (u *UpgradeService) Upgrade(req dto.Upgrade) error {
 
 		global.LOG.Info("backup original data successful, now start to upgrade!")
 
+		upgradeProgress.SetStage(StageInstall)
 		if err := files.CopyFileWithRename(path.Join(tmpDir, "1panel-core"), "/usr/local/bin/1panel-core"); err != nil {
-			global.LOG.Errorf("upgrade 1panel-core failed, err: %v", err)
-			_ = settingRepo.Update("SystemStatus", "Free")
-			u.handleRollback(originalDir, 1, svcInfo)
+			failUpgrade("upgrade 1panel-core", err, 1)
 			return
 		}
 		if err := files.CopyFileWithRename(path.Join(tmpDir, "1panel-agent"), "/usr/local/bin/1panel-agent"); err != nil {
-			global.LOG.Errorf("upgrade 1panel-agent failed, err: %v", err)
-			_ = settingRepo.Update("SystemStatus", "Free")
-			u.handleRollback(originalDir, 1, svcInfo)
+			failUpgrade("upgrade 1panel-agent", err, 1)
 			return
 		}
 
@@ -317,19 +341,15 @@ func (u *UpgradeService) Upgrade(req dto.Upgrade) error {
 		// so every extra resource is upgraded only when the archive contains it.
 		if _, err := os.Stat(path.Join(tmpDir, "1pctl")); err == nil {
 			if err := files.CopyFileWithRename(path.Join(tmpDir, "1pctl"), "/usr/local/bin/1pctl"); err != nil {
-				global.LOG.Errorf("upgrade 1pctl failed, err: %v", err)
-				_ = settingRepo.Update("SystemStatus", "Free")
-				u.handleRollback(originalDir, 2, svcInfo)
+				failUpgrade("upgrade 1pctl", err, 2)
 				return
 			}
 			if err := ctl_conf.UpdateInFile("/usr/local/bin/1pctl", "BASE_DIR", global.CONF.Base.InstallDir); err != nil {
-				global.LOG.Errorf("upgrade basedir in 1pctl failed, err: %v", err)
-				u.handleRollback(originalDir, 2, svcInfo)
+				failUpgrade("upgrade basedir in 1pctl", err, 2)
 				return
 			}
 			if err := ctl_conf.UpdateInFile("/usr/local/bin/1pctl", "LANGUAGE", oldLang); err != nil {
-				global.LOG.Errorf("upgrade basedir in 1pctl failed, err: %v", err)
-				u.handleRollback(originalDir, 2, svcInfo)
+				failUpgrade("upgrade language in 1pctl", err, 2)
 				return
 			}
 		} else {
@@ -338,15 +358,11 @@ func (u *UpgradeService) Upgrade(req dto.Upgrade) error {
 		initScriptPath := path.Join(tmpDir, "initscript")
 		if _, err := os.Stat(initScriptPath); err == nil {
 			if err := files.CopyItem(false, true, path.Join(initScriptPath, svcInfo.selCoreName), svcInfo.basePath); err != nil {
-				global.LOG.Errorf("upgrade %s failed, err: %v", svcInfo.coreName, err)
-				_ = settingRepo.Update("SystemStatus", "Free")
-				u.handleRollback(originalDir, 3, svcInfo)
+				failUpgrade("upgrade "+svcInfo.coreName, err, 3)
 				return
 			}
 			if err := files.CopyItem(false, true, path.Join(initScriptPath, svcInfo.selAgentName), svcInfo.basePath); err != nil {
-				global.LOG.Errorf("upgrade %s failed, err: %v", svcInfo.agentName, err)
-				_ = settingRepo.Update("SystemStatus", "Free")
-				u.handleRollback(originalDir, 3, svcInfo)
+				failUpgrade("upgrade "+svcInfo.agentName, err, 3)
 				return
 			}
 		} else {
@@ -355,9 +371,7 @@ func (u *UpgradeService) Upgrade(req dto.Upgrade) error {
 
 		if _, err := os.Stat(path.Join(tmpDir, "lang")); err == nil {
 			if err := files.CopyItem(true, true, path.Join(tmpDir, "lang"), "/usr/local/bin"); err != nil {
-				global.LOG.Errorf("Update language files failed: %v", err)
-				_ = settingRepo.Update("SystemStatus", "Free")
-				u.handleRollback(originalDir, 4, svcInfo)
+				failUpgrade("update language files", err, 4)
 				return
 			}
 		} else {
@@ -366,9 +380,7 @@ func (u *UpgradeService) Upgrade(req dto.Upgrade) error {
 		geoipPath := path.Join(global.CONF.Base.InstallDir, "1panel/geo/GeoIP.mmdb")
 		if _, err := os.Stat(path.Join(tmpDir, "GeoIP.mmdb")); err == nil {
 			if err := files.CopyFileWithRename(path.Join(tmpDir, "GeoIP.mmdb"), geoipPath); err != nil {
-				global.LOG.Warnf("Update GeoIP database failed: %v", err)
-				_ = settingRepo.Update("SystemStatus", "Free")
-				u.handleRollback(originalDir, 4, svcInfo)
+				failUpgrade("update GeoIP database", err, 4)
 				return
 			}
 		} else {
@@ -381,10 +393,18 @@ func (u *UpgradeService) Upgrade(req dto.Upgrade) error {
 		go writeLogs(req.Version)
 		_ = settingRepo.Update("SystemVersion", req.Version)
 		_ = global.AgentDB.Model(&model.Setting{}).Where("key = ?", "SystemVersion").Updates(map[string]interface{}{"value": req.Version}).Error
+		// Fork packages only ship core/agent binaries and keep the existing
+		// 1pctl. The running version on startup is read from ORIGINAL_VERSION
+		// inside 1pctl, so it must be refreshed in place — otherwise the panel
+		// resets the displayed version back to the old value after restart.
+		if err := ctl_conf.UpdateInFile("/usr/local/bin/1pctl", "ORIGINAL_VERSION", normalizeVersionTag(req.Version)); err != nil {
+			global.LOG.Warnf("sync ORIGINAL_VERSION in 1pctl failed, err: %v", err)
+		}
 		global.CONF.Base.Version = req.Version
 		_ = os.RemoveAll(downloadDir)
 		_ = settingRepo.Update("SystemStatus", "Free")
 
+		upgradeProgress.SetStage(StageRestart)
 		controller.RestartPanel(true, true, true)
 	}()
 	return nil
@@ -401,6 +421,11 @@ func (u *UpgradeService) Rollback(req dto.OperateByID) error {
 	}
 	u.handleRollback(log.BackupFile, 3, svcInfo)
 	return nil
+}
+
+// LoadUpgradeProgress returns the live upgrade progress for polling.
+func (u *UpgradeService) LoadUpgradeProgress() dto.UpgradeProgress {
+	return LoadUpgradeProgress()
 }
 
 func formatGithubPublishTime(t string) string {
@@ -472,6 +497,16 @@ func (u *UpgradeService) handleBackup(originalDir string, svcInfo serviceInfo) e
 }
 
 func (u *UpgradeService) handleRollback(originalDir string, errStep int, svcInfo serviceInfo) {
+	// The restored 1pctl carries the pre-upgrade ORIGINAL_VERSION. Sync the
+	// database after restoring files so startup version detection cannot
+	// mistake a rollback for a freshly finished upgrade.
+	defer func() {
+		if rollbackVersion, err := ctl_conf.LoadFromFile("/usr/local/bin/1pctl", "ORIGINAL_VERSION"); err == nil &&
+			rollbackVersion != "" && rollbackVersion != `""` {
+			_ = settingRepo.Update("SystemVersion", rollbackVersion)
+			global.CONF.Base.Version = rollbackVersion
+		}
+	}()
 	_ = settingRepo.Update("SystemStatus", "Free")
 	dbPath := path.Join(global.CONF.Base.InstallDir, "1panel")
 	if _, err := os.Stat(path.Join(originalDir, "db")); err == nil {
@@ -517,13 +552,57 @@ func (u *UpgradeService) resolvePackageURL(version, fileName string) string {
 		global.LOG.Warnf("load github releases when resolving package failed, err: %v", err)
 	} else if rel := findGithubReleaseByVersion(releases, version); rel != nil {
 		for _, asset := range rel.Assets {
-			if asset.Name == fileName && asset.BrowserDownloadURL != "" {
+			if asset.Name == fileName && asset.BrowserDownloadURL != "" &&
+				strings.Contains(asset.BrowserDownloadURL, "github.com/") {
 				return asset.BrowserDownloadURL
 			}
 		}
 	}
 	// Fallback to the standard GitHub release asset URL convention.
 	return fmt.Sprintf("%s/%s/%s", global.GithubReleaseDownloadURL(), normalizeVersionTag(version), fileName)
+}
+
+// buildDownloadCandidates lists ghproxy mirrors first and the direct GitHub
+// URL last. Mirrors are probed in order during download.
+func (u *UpgradeService) buildDownloadCandidates(directURL string) []files.DownloadCandidate {
+	candidates := make([]files.DownloadCandidate, 0, len(githubDownloadMirrors)+1)
+	source := strings.TrimPrefix(directURL, "https://")
+	source = strings.TrimPrefix(source, "http://")
+	for _, prefix := range githubDownloadMirrors {
+		base := strings.TrimSuffix(prefix, "/")
+		candidates = append(candidates, files.DownloadCandidate{
+			Name: files.CandidateName(base),
+			URL:  base + "/" + source,
+		})
+	}
+	candidates = append(candidates, files.DownloadCandidate{Name: "github.com", URL: directURL})
+	return candidates
+}
+
+// requestGithubAPI calls api.github.com directly first and, when that fails
+// (common on networks where GitHub is throttled), retries through every
+// ghproxy-compatible mirror. Mirrors which do not support the API simply
+// return a non-200/non-JSON response and are skipped.
+func (u *UpgradeService) requestGithubAPI(requestURL string, headers map[string]string) (int, []byte, error) {
+	candidates := make([]string, 0, len(githubDownloadMirrors)+1)
+	candidates = append(candidates, requestURL)
+	for _, prefix := range githubDownloadMirrors {
+		candidates = append(candidates, strings.TrimSuffix(prefix, "/")+"/"+requestURL)
+	}
+	var lastErr error
+	for _, candidateURL := range candidates {
+		status, res, err := req_helper.HandleRequestWithProxyHeaders(candidateURL, http.MethodGet, constant.TimeOut20s, headers)
+		if err == nil && status == http.StatusOK {
+			return status, res, nil
+		}
+		if err != nil {
+			lastErr = err
+		} else {
+			lastErr = fmt.Errorf("http status: %d", status)
+		}
+		global.LOG.Warnf("github api request via %s failed, err: %v", candidateURL, lastErr)
+	}
+	return 0, nil, lastErr
 }
 
 func loadArch() (string, error) {

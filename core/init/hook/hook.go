@@ -18,10 +18,24 @@ func Init() {
 	settingRepo := repo.NewISettingRepo()
 	storedVersion, _ := settingRepo.GetValueByKey("SystemVersion")
 	if storedVersion != global.CONF.Base.Version {
-		if err := settingRepo.Update("SystemVersion", global.CONF.Base.Version); err != nil {
-			global.LOG.Fatalf("sync system version before start failed, err: %v", err)
+		if common.ComparePanelVersion(storedVersion, global.CONF.Base.Version) {
+			// Fork release packages only ship core/agent binaries and keep the
+			// existing 1pctl, so ORIGINAL_VERSION (which feeds CONF.Base.Version
+			// on startup) can lag behind right after an upgrade. The upgrade
+			// flow records the new version in the database first; trust it and
+			// refresh 1pctl so all version sources agree on the next start.
+			global.LOG.Infof("detected upgraded package version %s while 1pctl still reports %s, syncing ORIGINAL_VERSION",
+				storedVersion, global.CONF.Base.Version)
+			global.CONF.Base.Version = storedVersion
+			if err := ctl_conf.UpdateInFile("/usr/local/bin/1pctl", "ORIGINAL_VERSION", storedVersion); err != nil {
+				global.LOG.Warnf("sync ORIGINAL_VERSION in 1pctl failed, err: %v", err)
+			}
+		} else {
+			if err := settingRepo.Update("SystemVersion", global.CONF.Base.Version); err != nil {
+				global.LOG.Fatalf("sync system version before start failed, err: %v", err)
+			}
+			global.LOG.Infof("sync system version from installed package: %s -> %s", storedVersion, global.CONF.Base.Version)
 		}
-		global.LOG.Infof("sync system version from installed package: %s -> %s", storedVersion, global.CONF.Base.Version)
 	}
 	global.CONF.Conn.Port, _ = settingRepo.GetValueByKey("ServerPort")
 	global.CONF.Conn.Ipv6, _ = settingRepo.GetValueByKey("Ipv6")

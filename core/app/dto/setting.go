@@ -163,6 +163,26 @@ type UpgradeInfo struct {
 	ReleaseNote   string `json:"releaseNote"`
 }
 
+// UpgradeMirror describes one download source probed during an upgrade.
+type UpgradeMirror struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Detail string `json:"detail"`
+}
+
+// UpgradeProgress is the live upgrade state polled by the frontend.
+type UpgradeProgress struct {
+	Running    bool            `json:"running"`
+	Failed     bool            `json:"failed"`
+	Stage      string          `json:"stage"`
+	Version    string          `json:"version"`
+	Message    string          `json:"message"`
+	Mirrors    []UpgradeMirror `json:"mirrors"`
+	Downloaded int64           `json:"downloaded"`
+	Total      int64           `json:"total"`
+	SpeedBps   int64           `json:"speedBps"`
+}
+
 type SyncTime struct {
 	NtpSite string `json:"ntpSite" validate:"required"`
 }

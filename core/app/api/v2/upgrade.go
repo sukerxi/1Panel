@@ -59,6 +59,16 @@ func (b *BaseApi) GetNotesByVersion(c *gin.Context) {
 }
 
 // @Tags System Setting
+// @Summary Load upgrade progress
+// @Success 200 {object} dto.UpgradeProgress
+// @Security ApiKeyAuth
+// @Security Timestamp
+// @Router /core/settings/upgrade/progress [get]
+func (b *BaseApi) GetUpgradeProgress(c *gin.Context) {
+	helper.SuccessWithData(c, upgradeService.LoadUpgradeProgress())
+}
+
+// @Tags System Setting
 // @Summary Upgrade
 // @Accept json
 // @Param request body dto.Upgrade true "request"

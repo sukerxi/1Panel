@@ -35,10 +35,7 @@ import { loadReleaseNotes, upgrade } from '@/api/modules/setting';
 import i18n from '@/lang';
 import { MsgSuccess } from '@/utils/message';
 import { ref } from 'vue';
-import { useGlobalStore } from '@/composables/useGlobalStore';
 import { ElMessageBox } from 'element-plus';
-
-const { isLoading, isOnRestart } = useGlobalStore();
 
 const drawerVisible = ref(false);
 const upgradeInfo = ref();
@@ -55,7 +52,7 @@ const acceptParams = (params: DialogProps): void => {
     drawerVisible.value = true;
 };
 
-const emit = defineEmits(['search']);
+const emit = defineEmits(['search', 'upgrading']);
 
 const handleClose = () => {
     drawerVisible.value = false;
@@ -80,10 +77,9 @@ const onUpgrade = async () => {
         type: 'info',
     }).then(async () => {
         await upgrade(upgradeVersion.value);
-        isLoading.value = true;
-        isOnRestart.value = true;
         drawerVisible.value = false;
         MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
+        emit('upgrading', upgradeVersion.value);
         emit('search');
     });
 };

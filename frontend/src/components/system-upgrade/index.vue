@@ -31,7 +31,8 @@
             </div>
         </div>
 
-        <Upgrade ref="upgradeRef" @search="search" />
+        <Upgrade ref="upgradeRef" @search="search" @upgrading="onUpgradeStarted" />
+        <UpgradeProgress ref="progressRef" />
         <Releases ref="releasesRef" />
     </div>
 </template>
@@ -39,6 +40,7 @@
 <script setup lang="ts">
 import { getSettingBaseInfo, loadUpgradeInfo } from '@/api/modules/setting';
 import Upgrade from '@/components/system-upgrade/upgrade/index.vue';
+import UpgradeProgress from '@/components/system-upgrade/progress/index.vue';
 import Releases from '@/components/system-upgrade/releases/index.vue';
 import i18n from '@/lang';
 import { MsgSuccess } from '@/utils/message';
@@ -47,6 +49,7 @@ import { useGlobalStore } from '@/composables/useGlobalStore';
 
 const { isOffline, isMasterPro, isEE, isIntl, isAdmin, hasNewVersion } = useGlobalStore();
 const upgradeRef = ref();
+const progressRef = ref();
 const releasesRef = ref();
 
 const version = ref<string>('');
@@ -57,6 +60,10 @@ const upgradeVersion = ref();
 const search = async () => {
     const res = await getSettingBaseInfo();
     version.value = res.data.systemVersion;
+};
+
+const onUpgradeStarted = (targetVersion: string) => {
+    progressRef.value?.start(targetVersion);
 };
 
 const getVersionLog = () => {
@@ -114,6 +121,7 @@ const onLoadUpgradeInfo = async () => {
 
 onMounted(() => {
     search();
+    progressRef.value?.resumeIfRunning();
 });
 </script>
 

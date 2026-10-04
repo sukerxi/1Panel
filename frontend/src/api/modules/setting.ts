@@ -215,6 +215,9 @@ export const listReleases = () => {
 export const upgrade = (version: string) => {
     return http.post(`/core/settings/upgrade`, { version: version });
 };
+export const getUpgradeProgress = () => {
+    return http.get<Setting.UpgradeProgress>(`/core/settings/upgrade/progress`);
+};
 
 // memo
 export const getMemo = () => {

@@ -264,6 +264,24 @@ export namespace Setting {
         releaseNote: string;
     }
 
+    export interface UpgradeMirror {
+        name: string;
+        status: string;
+        detail: string;
+    }
+
+    export interface UpgradeProgress {
+        running: boolean;
+        failed: boolean;
+        stage: string;
+        version: string;
+        message: string;
+        mirrors: Array<UpgradeMirror>;
+        downloaded: number;
+        total: number;
+        speedBps: number;
+    }
+
     export interface License {
         licenseName: string;
         assigneeName: string;
