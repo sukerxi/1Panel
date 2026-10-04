@@ -3,6 +3,8 @@
 .sidebar-container {
     :deep(.el-menu) {
         user-select: none;
+        // 禁用移动端（微信/X5 等 WebView）点击瞬间的原生高亮块，避免其越过圆角行边界
+        -webkit-tap-highlight-color: transparent;
         background: none;
         width: 100%;
         padding: 0 7px;
