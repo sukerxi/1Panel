@@ -44,6 +44,7 @@ type (
 const (
 	mirrorDialTimeout       = 8 * time.Second
 	mirrorHeaderTimeout     = 15 * time.Second
+	mirrorFirstByteTimeout  = 20 * time.Second
 	mirrorStallTimeout      = 30 * time.Second
 	mirrorProgressInterval  = time.Second
 	mirrorIdleConnTimeout   = 15 * time.Second
@@ -99,22 +100,14 @@ func parseContentRange(contentRange string) int64 {
 	return total
 }
 
-// sniffGzip reads the two gzip magic bytes (0x1f 0x8b) from the response body.
-func sniffGzip(resp *http.Response) error {
-	header := make([]byte, 2)
-	n, err := io.ReadFull(resp.Body, header)
-	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
-		return fmt.Errorf("read package header failed: %w", err)
-	}
-	if n == 2 && header[0] == 0x1f && header[1] == 0x8b {
-		return nil
-	}
-	return errors.New("downloaded file is not a valid gzip package, the mirror may have returned an error page")
-}
-
 // streamMirror streams one candidate into dstPart. When the part file already
 // exists, the download is resumed with a Range request. The returned result
 // carries the total package size when the server announced it.
+//
+// Two timeouts guard a candidate so an unreachable upstream can never hang the
+// whole upgrade: mirrorFirstByteTimeout while no body byte has arrived (many
+// proxies answer headers instantly while their GitHub fetch stalls forever),
+// and mirrorStallTimeout once data is flowing.
 func streamMirror(ctx context.Context, client *http.Client, candidate DownloadCandidate, dstPart string,
 	onMirror MirrorStatusFunc, onProgress DownloadProgressFunc) mirrorAttemptResult {
 	existing, err := os.Stat(dstPart)
@@ -123,7 +116,10 @@ func streamMirror(ctx context.Context, client *http.Client, candidate DownloadCa
 		resumeFrom = existing.Size()
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, candidate.URL, nil)
+	reqCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, candidate.URL, nil)
 	if err != nil {
 		return mirrorAttemptResult{err: err}
 	}
@@ -159,13 +155,6 @@ func streamMirror(ctx context.Context, client *http.Client, candidate DownloadCa
 		total = resp.ContentLength + resumeFrom
 	}
 
-	// Reject interstitials/error pages served with a 200 status.
-	if restart {
-		if err := sniffGzip(resp); err != nil {
-			return mirrorAttemptResult{statusCode: resp.StatusCode, err: err}
-		}
-	}
-
 	flag := os.O_CREATE | os.O_WRONLY
 	if restart {
 		flag |= os.O_TRUNC
@@ -189,23 +178,37 @@ func streamMirror(ctx context.Context, client *http.Client, candidate DownloadCa
 		done           = make(chan struct{})
 	)
 	lastActiveNano.Store(time.Now().UnixNano())
-	if restart {
-		// Write back the two magic bytes consumed by sniffGzip.
-		if _, err := out.Write([]byte{0x1f, 0x8b}); err != nil {
-			_ = out.Close()
-			return mirrorAttemptResult{err: fmt.Errorf("write part file failed: %w", err)}
-		}
-		sessionBytes.Store(2)
-	}
 
 	watchdog := time.NewTicker(mirrorProgressInterval)
 	defer watchdog.Stop()
 
 	go func() {
 		defer close(done)
+		if restart {
+			// Reject interstitials/error pages served with a 200 status before
+			// any byte reaches the part file. The gzip check runs inside this
+			// goroutine on purpose: the watchdog must be able to abort a mirror
+			// which answers headers but never streams a body.
+			header := make([]byte, 2)
+			n, readErr := io.ReadFull(resp.Body, header)
+			lastActiveNano.Store(time.Now().UnixNano())
+			if readErr != nil && !errors.Is(readErr, io.ErrUnexpectedEOF) {
+				streamErr = fmt.Errorf("read package header failed: %w", readErr)
+				return
+			}
+			if n != 2 || header[0] != 0x1f || header[1] != 0x8b {
+				streamErr = errors.New("downloaded file is not a valid gzip package, the mirror may have returned an error page")
+				return
+			}
+			if _, err := out.Write(header); err != nil {
+				streamErr = fmt.Errorf("write part file failed: %w", err)
+				return
+			}
+			sessionBytes.Store(2)
+		}
 		for {
 			select {
-			case <-ctx.Done():
+			case <-reqCtx.Done():
 				return
 			default:
 			}
@@ -250,7 +253,19 @@ func streamMirror(ctx context.Context, client *http.Client, candidate DownloadCa
 			}
 			return mirrorAttemptResult{statusCode: resp.StatusCode, total: total}
 		case now := <-watchdog.C:
-			if time.Since(time.Unix(0, lastActiveNano.Load())) > mirrorStallTimeout {
+			idle := time.Since(time.Unix(0, lastActiveNano.Load()))
+			if sessionBytes.Load() == 0 {
+				if idle > mirrorFirstByteTimeout {
+					cancel()
+					_ = out.Close()
+					return mirrorAttemptResult{
+						statusCode: resp.StatusCode,
+						total:      total,
+						err:        fmt.Errorf("no data received within %s", mirrorFirstByteTimeout),
+					}
+				}
+			} else if idle > mirrorStallTimeout {
+				cancel()
 				_ = out.Close()
 				return mirrorAttemptResult{
 					statusCode: resp.StatusCode,
@@ -273,9 +288,9 @@ func streamMirror(ctx context.Context, client *http.Client, candidate DownloadCa
 				prevTickTime = now
 				onProgress(resumeFrom+cur, total, windowSpeed)
 			}
-		case <-ctx.Done():
+		case <-reqCtx.Done():
 			_ = out.Close()
-			return mirrorAttemptResult{err: ctx.Err()}
+			return mirrorAttemptResult{err: reqCtx.Err()}
 		}
 	}
 }

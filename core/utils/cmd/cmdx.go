@@ -227,9 +227,7 @@ func (c *CommandHelper) buildPipeCommands(ctx context.Context, commands []PipeCo
 		if item.Dir != "" {
 			cmdItem.Dir = item.Dir
 		}
-		cmdItem.SysProcAttr = &syscall.SysProcAttr{
-			Setpgid: true,
-		}
+		setProcessGroup(cmdItem)
 		cmds = append(cmds, cmdItem)
 	}
 	return cmds
@@ -302,9 +300,7 @@ func (c *CommandHelper) run(name string, arg ...string) (string, error) {
 	} else {
 		cmd = exec.Command(name, arg...)
 	}
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setpgid: true,
-	}
+	setProcessGroup(cmd)
 
 	customWriter := &CustomWriter{taskItem: c.taskItem}
 	var stdout, stderr bytes.Buffer
@@ -359,7 +355,7 @@ func (c *CommandHelper) run(name string, arg ...string) (string, error) {
 	case err := <-done:
 		if c.preserveErrorCause && newContext != nil && newContext.Err() != nil {
 			if cmd.Process != nil && cmd.Process.Pid > 0 {
-				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+				_ = killProcessGroup(cmd.Process.Pid)
 			}
 			return "", newContext.Err()
 		}
@@ -373,7 +369,7 @@ func (c *CommandHelper) run(name string, arg ...string) (string, error) {
 		return stdout.String(), nil
 	case <-contextDone(newContext):
 		if cmd.Process != nil && cmd.Process.Pid > 0 {
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			_ = killProcessGroup(cmd.Process.Pid)
 		}
 		var err error
 		switch newContext.Err() {
@@ -411,7 +407,7 @@ func killStarted(cmds []*exec.Cmd) {
 func killProcessGroups(cmds []*exec.Cmd) {
 	for _, item := range cmds {
 		if item.Process != nil {
-			_ = syscall.Kill(-item.Process.Pid, syscall.SIGKILL)
+			_ = killProcessGroup(item.Process.Pid)
 		}
 	}
 }

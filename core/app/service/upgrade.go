@@ -8,7 +8,6 @@ import (
 	"path"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/1Panel-dev/1Panel/core/app/dto"
@@ -34,8 +33,6 @@ type serviceInfo struct {
 	selCoreName  string
 	selAgentName string
 }
-
-const minUpgradeFreeSpace = 500 << 20 // 500MB
 
 func loadServiceInfo() (serviceInfo, error) {
 	basePath, err := controller.GetServicePath("")
@@ -109,14 +106,13 @@ var githubReleaseCache = struct {
 }{}
 
 // githubDownloadMirrors are ghproxy-compatible public mirrors probed before
-// the direct GitHub URL. Public mirrors come and go, so every entry is
-// health-checked at download time and the direct URL always remains the last
-// fallback.
+// the direct GitHub URL. Public mirrors come and go (ghfast.top/ghproxy.net/
+// homeboyc were all unreachable or rejecting requests in 2026-10), so every
+// entry is health-checked at download time with a first-byte timeout and the
+// direct URL always remains the last fallback.
 var githubDownloadMirrors = []string{
+	"https://gh-proxy.com/",
 	"https://gh-proxy.org/",
-	"https://ghfast.top/",
-	"https://ghproxy.net/",
-	"https://ghproxy.homeboyc.cn/",
 }
 
 // normalizeVersionTag accepts a GitHub tag (with or without a leading "v")
@@ -453,19 +449,6 @@ func (u *UpgradeService) LoadRelease() ([]dto.ReleasesNotes, error) {
 		})
 	}
 	return notes, nil
-}
-
-func checkUpgradeSpace() error {
-	dir := global.CONF.Base.InstallDir
-	var stat syscall.Statfs_t
-	if err := syscall.Statfs(dir, &stat); err != nil {
-		return err
-	}
-	avail := stat.Bavail * uint64(stat.Bsize)
-	if avail < minUpgradeFreeSpace {
-		return fmt.Errorf("available space of %s is %d MB, less than required 500MB", dir, avail>>20)
-	}
-	return nil
 }
 
 func (u *UpgradeService) handleBackup(originalDir string, svcInfo serviceInfo) error {
