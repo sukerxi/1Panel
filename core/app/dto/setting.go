@@ -170,17 +170,34 @@ type UpgradeMirror struct {
 	Detail string `json:"detail"`
 }
 
+// UpgradeLogLine is one detailed log entry produced while upgrading.
+// Lines are rendered in the progress dialog like a terminal console.
+type UpgradeLogLine struct {
+	Time    string `json:"time"`
+	Level   string `json:"level"`
+	Message string `json:"message"`
+}
+
 // UpgradeProgress is the live upgrade state polled by the frontend.
 type UpgradeProgress struct {
-	Running    bool            `json:"running"`
-	Failed     bool            `json:"failed"`
-	Stage      string          `json:"stage"`
-	Version    string          `json:"version"`
-	Message    string          `json:"message"`
-	Mirrors    []UpgradeMirror `json:"mirrors"`
-	Downloaded int64           `json:"downloaded"`
-	Total      int64           `json:"total"`
-	SpeedBps   int64           `json:"speedBps"`
+	Running    bool             `json:"running"`
+	Failed     bool             `json:"failed"`
+	Stage      string           `json:"stage"`
+	Version    string           `json:"version"`
+	Message    string           `json:"message"`
+	Mirrors    []UpgradeMirror  `json:"mirrors"`
+	Downloaded int64            `json:"downloaded"`
+	Total      int64            `json:"total"`
+	SpeedBps   int64            `json:"speedBps"`
+	Logs       []UpgradeLogLine `json:"logs"`
+}
+
+// ManualPackageInfo describes an uploaded package ready for manual install.
+type ManualPackageInfo struct {
+	Version  string `json:"version"`
+	Package  string `json:"package"`
+	FileName string `json:"fileName"`
+	Size     int64  `json:"size"`
 }
 
 type SyncTime struct {
@@ -194,6 +211,9 @@ type BindInfo struct {
 
 type Upgrade struct {
 	Version string `json:"version" validate:"required"`
+	// Package is the file name of a package previously staged through the
+	// manual upload endpoint. When set the download stage is skipped.
+	Package string `json:"package"`
 }
 
 type ReleasesNotes struct {

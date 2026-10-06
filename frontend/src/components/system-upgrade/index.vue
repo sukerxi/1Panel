@@ -27,12 +27,23 @@
                         {{ $t('commons.button.update') }}
                     </el-link>
                 </el-badge>
+                <el-link
+                    v-if="isAdmin && !isEE"
+                    class="ml-2 manual-link"
+                    underline="never"
+                    type="primary"
+                    @click="manualRef?.acceptParams()"
+                >
+                    <el-icon class="manual-icon"><Upload /></el-icon>
+                    {{ $t('setting.manualUpgrade.entry') }}
+                </el-link>
                 <el-tag v-if="version === 'Waiting'" round class="ml-2.5">{{ $t('setting.upgrading') }}</el-tag>
             </div>
         </div>
 
         <Upgrade ref="upgradeRef" @search="search" @upgrading="onUpgradeStarted" />
         <UpgradeProgress ref="progressRef" />
+        <ManualUpgrade ref="manualRef" @search="search" @upgrading="onUpgradeStarted" />
         <Releases ref="releasesRef" />
     </div>
 </template>
@@ -41,15 +52,18 @@
 import { getSettingBaseInfo, loadUpgradeInfo } from '@/api/modules/setting';
 import Upgrade from '@/components/system-upgrade/upgrade/index.vue';
 import UpgradeProgress from '@/components/system-upgrade/progress/index.vue';
+import ManualUpgrade from '@/components/system-upgrade/manual/index.vue';
 import Releases from '@/components/system-upgrade/releases/index.vue';
 import i18n from '@/lang';
 import { MsgSuccess } from '@/utils/message';
 import { onMounted, ref } from 'vue';
 import { useGlobalStore } from '@/composables/useGlobalStore';
+import { Upload } from '@element-plus/icons-vue';
 
 const { isOffline, isMasterPro, isEE, isIntl, isAdmin, hasNewVersion } = useGlobalStore();
 const upgradeRef = ref();
 const progressRef = ref();
+const manualRef = ref();
 const releasesRef = ref();
 
 const version = ref<string>('');
@@ -140,5 +154,13 @@ onMounted(() => {
     letter-spacing: 0.5px;
     cursor: pointer;
     font-family: auto;
+}
+.manual-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+.manual-icon {
+    font-size: 14px;
 }
 </style>

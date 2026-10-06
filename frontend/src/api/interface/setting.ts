@@ -270,6 +270,12 @@ export namespace Setting {
         detail: string;
     }
 
+    export interface UpgradeLogLine {
+        time: string;
+        level: string;
+        message: string;
+    }
+
     export interface UpgradeProgress {
         running: boolean;
         failed: boolean;
@@ -280,6 +286,14 @@ export namespace Setting {
         downloaded: number;
         total: number;
         speedBps: number;
+        logs: Array<UpgradeLogLine>;
+    }
+
+    export interface ManualPackageInfo {
+        version: string;
+        package: string;
+        fileName: string;
+        size: number;
     }
 
     export interface License {

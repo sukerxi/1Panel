@@ -89,3 +89,26 @@ func (b *BaseApi) Upgrade(c *gin.Context) {
 	}
 	helper.Success(c)
 }
+
+// @Tags System Setting
+// @Summary Upload a manual upgrade package
+// @Accept multipart/form-data
+// @Param file formData file true "1panel-<version>-linux-<arch>.tar.gz"
+// @Success 200 {object} dto.ManualPackageInfo
+// @Security ApiKeyAuth
+// @Security Timestamp
+// @Router /core/settings/upgrade/upload [post]
+// @x-panel-log {"bodyKeys":[],"paramKeys":[],"BeforeFunctions":[],"formatZH":"上传手动更新包","formatEN":"upload manual upgrade package"}
+func (b *BaseApi) UploadUpgradePackage(c *gin.Context) {
+	fileHeader, err := c.FormFile("file")
+	if err != nil {
+		helper.BadRequest(c, err)
+		return
+	}
+	info, err := upgradeService.UploadUpgradePackage(fileHeader)
+	if err != nil {
+		helper.InternalServer(c, err)
+		return
+	}
+	helper.SuccessWithData(c, info)
+}

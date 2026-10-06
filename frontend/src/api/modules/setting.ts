@@ -5,6 +5,7 @@ import { ResPage, SearchWithPage, DescriptionUpdate, ReqPage } from '../interfac
 import { Setting } from '../interface/setting';
 import { TimeoutEnum } from '@/enums/http-enum';
 import { App } from '../interface/app';
+import { AxiosRequestConfig } from 'axios';
 
 // license
 export const uploadLicense = (oldLicense: string, params: FormData) => {
@@ -212,8 +213,11 @@ export const loadReleaseNotes = (version: string) => {
 export const listReleases = () => {
     return http.get<Array<Setting.ReleasesNotes>>(`/core/settings/upgrade/releases`);
 };
-export const upgrade = (version: string) => {
-    return http.post(`/core/settings/upgrade`, { version: version });
+export const upgrade = (version: string, packageName?: string) => {
+    return http.post(`/core/settings/upgrade`, { version: version, package: packageName });
+};
+export const uploadUpgradePackage = (params: FormData, config?: AxiosRequestConfig) => {
+    return http.upload<Setting.ManualPackageInfo>(`/core/settings/upgrade/upload`, params, config);
 };
 export const getUpgradeProgress = () => {
     return http.get<Setting.UpgradeProgress>(`/core/settings/upgrade/progress`);
