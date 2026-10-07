@@ -37,12 +37,13 @@ type upgradeProgressStore struct {
 
 var upgradeProgress = &upgradeProgressStore{}
 
-func (p *upgradeProgressStore) Start(version string, mirrors []files.DownloadCandidate) {
+func (p *upgradeProgressStore) Start(version string, mirrors []files.DownloadCandidate, manual bool) {
 	p.Lock()
 	defer p.Unlock()
 	p.data = dto.UpgradeProgress{
 		Running: true,
 		Failed:  false,
+		Manual:  manual,
 		Stage:   StagePreparing,
 		Version: version,
 		Mirrors: make([]dto.UpgradeMirror, 0, len(mirrors)),

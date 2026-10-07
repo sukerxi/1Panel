@@ -322,7 +322,7 @@ func (u *UpgradeService) Upgrade(req dto.Upgrade) error {
 		task.candidates = u.buildDownloadCandidates(task.directURL)
 	}
 	_ = settingRepo.Update("SystemStatus", "Upgrading")
-	upgradeProgress.Start(task.version, task.candidates)
+	upgradeProgress.Start(task.version, task.candidates, task.localPackage != "")
 	go u.runUpgrade(task)
 	return nil
 }
@@ -818,9 +818,12 @@ func validateUpgradePackage(packagePath string) error {
 	}
 	defer gzReader.Close()
 
+	// The panel binaries are the first entries of a release archive. Stop
+	// scanning as soon as both are found — a full gunzip over tens of MB on a
+	// low-power host could otherwise take tens of seconds with no feedback.
 	required := map[string]bool{"1panel-core": false, "1panel-agent": false}
 	tarReader := tar.NewReader(gzReader)
-	for {
+	for found := 0; found < len(required); {
 		header, err := tarReader.Next()
 		if err == io.EOF {
 			break
@@ -829,8 +832,9 @@ func validateUpgradePackage(packagePath string) error {
 			return fmt.Errorf("read package entries failed: %w", err)
 		}
 		base := filepath.Base(header.Name)
-		if _, ok := required[base]; ok {
+		if seen := required[base]; !seen {
 			required[base] = true
+			found++
 		}
 	}
 	for name, found := range required {

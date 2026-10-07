@@ -180,8 +180,12 @@ type UpgradeLogLine struct {
 
 // UpgradeProgress is the live upgrade state polled by the frontend.
 type UpgradeProgress struct {
-	Running    bool             `json:"running"`
-	Failed     bool             `json:"failed"`
+	Running bool `json:"running"`
+	Failed  bool `json:"failed"`
+	// Manual reports that the package came from a browser upload instead of a
+	// download. The frontend uses it to render the upload step instead of the
+	// download step.
+	Manual     bool             `json:"manual"`
 	Stage      string           `json:"stage"`
 	Version    string           `json:"version"`
 	Message    string           `json:"message"`

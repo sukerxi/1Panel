@@ -76,8 +76,8 @@ const search = async () => {
     version.value = res.data.systemVersion;
 };
 
-const onUpgradeStarted = (targetVersion: string) => {
-    progressRef.value?.start(targetVersion);
+const onUpgradeStarted = (targetVersion: string, manual = false) => {
+    progressRef.value?.start(targetVersion, manual);
 };
 
 const getVersionLog = () => {

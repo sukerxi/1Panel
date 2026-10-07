@@ -20,12 +20,12 @@
                         <div class="step-dot">
                             <el-icon v-if="stepState(idx) === 'done'"><Check /></el-icon>
                             <el-icon v-else-if="stepState(idx) === 'active'">
-                                <component :is="STAGE_META[stageKey].icon" />
+                                <component :is="stepMeta(idx).icon" />
                             </el-icon>
                             <el-icon v-else-if="stepState(idx) === 'error'"><Close /></el-icon>
                             <span v-else class="step-num">{{ idx + 1 }}</span>
                         </div>
-                        <span class="step-label">{{ $t(`setting.upgradeProgress.${STAGE_META[stageKey].labelKey}`) }}</span>
+                        <span class="step-label">{{ $t(`setting.upgradeProgress.${stepMeta(idx).labelKey}`) }}</span>
                     </div>
                     <div v-if="idx < STAGES.length - 1" class="step-line" :class="{ done: idx < activeStep }"></div>
                 </template>
@@ -33,9 +33,8 @@
 
             <div class="status-card" :class="{ 'is-error': progress.failed }">
                 <div class="status-icon">
-                    <el-icon :class="{ 'is-loading': !progress.failed }">
-                        <component :is="statusIcon" />
-                    </el-icon>
+                    <el-icon v-if="progress.failed"><CircleClose /></el-icon>
+                    <el-icon v-else class="is-loading"><Loading /></el-icon>
                 </div>
                 <div class="status-main">
                     <div class="status-headline">{{ headlineText }}</div>
@@ -129,6 +128,7 @@ import {
     Loading,
     RefreshRight,
     Tools,
+    Upload,
     WarningFilled,
 } from '@element-plus/icons-vue';
 import i18n from '@/lang';
@@ -140,11 +140,19 @@ const STAGES = ['download', 'decompress', 'backup', 'install', 'restart'] as con
 
 const STAGE_META: Record<string, { icon: unknown; labelKey: string; textKey: string }> = {
     download: { icon: Download, labelKey: 'stageDownload', textKey: 'stageText_download' },
+    upload: { icon: Upload, labelKey: 'stageUpload', textKey: 'stageText_preparing' },
     decompress: { icon: Files, labelKey: 'stageDecompress', textKey: 'stageText_decompress' },
     backup: { icon: DocumentCopy, labelKey: 'stageBackup', textKey: 'stageText_backup' },
     install: { icon: Tools, labelKey: 'stageInstall', textKey: 'stageText_install' },
     restart: { icon: RefreshRight, labelKey: 'stageRestart', textKey: 'stageText_restart' },
-    preparing: { icon: Download, labelKey: 'stageDownload', textKey: 'stageText_preparing' },
+};
+
+// Manual uploads skip the download step: the first step renders as "upload".
+const stepMeta = (idx: number) => {
+    if (idx === 0 && progress.value.manual) {
+        return STAGE_META.upload;
+    }
+    return STAGE_META[STAGES[idx]];
 };
 
 const visible = ref(false);
@@ -154,6 +162,7 @@ const logBoxRef = ref<HTMLElement>();
 const progress = ref<Setting.UpgradeProgress>({
     running: false,
     failed: false,
+    manual: false,
     stage: 'preparing',
     version: '',
     message: '',
@@ -204,9 +213,12 @@ const activeStep = computed(() => {
 // in the download stage.
 const isDownloadPhase = computed(() => progress.value.stage === 'download');
 
-const currentMeta = computed(() => STAGE_META[progress.value.stage] || STAGE_META.preparing);
-
-const statusIcon = computed(() => (progress.value.failed ? CircleClose : currentMeta.value.icon));
+const currentMeta = computed(() => {
+    if (progress.value.stage === 'preparing') {
+        return progress.value.manual ? STAGE_META.upload : STAGE_META.download;
+    }
+    return STAGE_META[progress.value.stage] || STAGE_META.download;
+});
 
 const stepState = (idx: number): 'done' | 'active' | 'waiting' | 'error' => {
     if (progress.value.failed && idx === activeStep.value) return 'error';
@@ -338,11 +350,12 @@ const startPolling = () => {
     pollTimer = setInterval(pollOnce, 1000);
 };
 
-const start = (targetVersion: string) => {
+const start = (targetVersion: string, manual = false) => {
     version.value = targetVersion;
     progress.value = {
         running: true,
         failed: false,
+        manual,
         stage: 'preparing',
         version: targetVersion,
         message: '',

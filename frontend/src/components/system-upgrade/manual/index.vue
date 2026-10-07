@@ -47,6 +47,10 @@
             striped
             striped-flow
         />
+        <div v-if="uploading && uploadPercent === 100" class="upload-tip upload-verifying">
+            <el-icon class="is-loading"><Loading /></el-icon>
+            {{ $t('setting.manualUpgrade.verifying') }}
+        </div>
 
         <template #footer>
             <el-button @click="visible = false" :disabled="uploading">{{ $t('commons.button.cancel') }}</el-button>
@@ -63,7 +67,7 @@ import { Setting } from '@/api/interface/setting';
 import { TimeoutEnum } from '@/enums/http-enum';
 import i18n from '@/lang';
 import { MsgSuccess } from '@/utils/message';
-import { Document, UploadFilled } from '@element-plus/icons-vue';
+import { Document, Loading, UploadFilled } from '@element-plus/icons-vue';
 import { ElMessageBox, genFileId, type UploadFile, type UploadInstance, type UploadRawFile } from 'element-plus';
 import { ref } from 'vue';
 
@@ -171,7 +175,7 @@ const onSubmit = () => {
         }
         MsgSuccess(i18n.global.t('commons.msg.operationSuccess'));
         visible.value = false;
-        emit('upgrading', packageInfo.version);
+        emit('upgrading', packageInfo.version, true);
         emit('search');
     });
 };
@@ -223,5 +227,13 @@ defineExpose({
 }
 .upload-progress {
     margin-top: 14px;
+}
+.upload-verifying {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    margin-top: 8px;
+    color: var(--el-color-primary);
 }
 </style>

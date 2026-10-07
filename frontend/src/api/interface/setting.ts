@@ -279,6 +279,7 @@ export namespace Setting {
     export interface UpgradeProgress {
         running: boolean;
         failed: boolean;
+        manual: boolean;
         stage: string;
         version: string;
         message: string;
