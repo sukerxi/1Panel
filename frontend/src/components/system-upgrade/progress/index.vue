@@ -335,7 +335,9 @@ const handleRestart = () => {
 const pollOnce = async () => {
     try {
         const res = await getUpgradeProgress();
-        if (!res.data) return;
+        // The axios interceptor resolves undefined for code 407 (global
+        // loading); keep the last known progress instead of throwing.
+        if (!res?.data) return;
         progress.value = res.data;
         if (res.data.failed) {
             stopPolling();
