@@ -252,7 +252,13 @@ const statusSubText = computed(() => {
         return progress.value.message;
     }
     if (progress.value.stage === 'preparing') {
-        return lastLogMessage.value || i18n.global.t('setting.upgradeProgress.verifyingManual');
+        // preparing only exists for manual uploads. The online flow must never
+        // show "verifying package" wording — it is a transient local/race
+        // state before the first progress poll returns the download stage.
+        if (progress.value.manual) {
+            return lastLogMessage.value || i18n.global.t('setting.upgradeProgress.verifyingManual');
+        }
+        return i18n.global.t('setting.upgradeProgress.preparingDownload');
     }
     if (isDownloadPhase.value) {
         if (progress.value.total > 0) {
@@ -356,7 +362,9 @@ const start = (targetVersion: string, manual = false) => {
         running: true,
         failed: false,
         manual,
-        stage: 'preparing',
+        // Only manual uploads start in the preparing/verifying phase; online
+        // upgrades begin at download immediately.
+        stage: manual ? 'preparing' : 'download',
         version: targetVersion,
         message: '',
         mirrors: [],

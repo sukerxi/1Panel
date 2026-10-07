@@ -3135,7 +3135,7 @@ const message = {
             stageText_restart: '文件安装完成，正在重启面板…',
             connecting: '正在与下载源 {name} 建立连接…',
             preparingDownload: '正在准备下载任务…',
-            verifyingManual: '正在校验安装包格式与内容…',
+            verifyingManual: '正在校验上传的安装包（压缩格式、架构与核心文件）…',
             logLines: '行',
             copyLog: '复制日志',
             copied: '已复制',

@@ -3420,7 +3420,7 @@ const message = {
             stageText_restart: 'Files installed, restarting the panel…',
             connecting: 'Connecting to {name} …',
             preparingDownload: 'Preparing the download task…',
-            verifyingManual: 'Verifying package format and contents…',
+            verifyingManual: 'Verifying the uploaded package (archive format, arch and core files)…',
             logLines: 'lines',
             copyLog: 'Copy logs',
             copied: 'Copied',
